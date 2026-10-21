@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#151719"><meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Votre musique vous suit. Un lecteur personnel, sans abonnement, avec playlists et écoute hors connexion.">
+  <title>Sillage · Votre musique, partout</title>
+  <link rel="manifest" href="./manifest.webmanifest"><link rel="icon" href="./icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" stroke-width="4"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13M9 9l12-2"/><ellipse cx="5.5" cy="18" rx="3.5" ry="3"/><ellipse cx="17.5" cy="16" rx="3.5" ry="3"/></symbol>
+<symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.4 4.6a5.4 5.4 0 0 0-7.6 0L12 5.4l-.8-.8a5.4 5.4 0 0 0-7.6 7.6L12 21l8.4-8.8a5.4 5.4 0 0 0 0-7.6Z"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+<symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3M7 8l5-5 5 5M4 16v5h16v-5"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+<symbol id="i-next" viewBox="0 0 24 24"><path d="m5 5 10 7-10 7Z" fill="currentColor" stroke="none"/><path d="M19 5v14"/></symbol>
+<symbol id="i-prev" viewBox="0 0 24 24"><path d="m19 5-10 7 10 7Z" fill="currentColor" stroke="none"/><path d="M5 5v14"/></symbol>
+<symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M3 6h3c5 0 7 12 12 12h3m-4-4 4 4-4 4M3 18h3c2 0 3-2 5-5m2-3c2-3 3-4 5-4h3m-4-4 4 4-4 4"/></symbol>
+<symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-1v2a3 3 0 0 1-3 3H3"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><path d="M9 5h12M9 12h12M9 19h12M3 5h1m-1 7h1m-1 7h1"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+</defs></svg>
+<aside class="sidebar">
+  <a class="brand" href="./" aria-label="Sillage, accueil"><span class="brand-mark"><i></i><i></i><i></i><i></i></span>sillage<span class="brand-dot">.</span></a>
+  <span class="side-caption">VOTRE ESPACE MUSICAL</span>
+  <nav aria-label="Bibliothèque"><button class="nav-button active" data-view="library"><svg><use href="#i-music"/></svg>Bibliothèque</button><button class="nav-button" data-view="favorites"><svg><use href="#i-heart"/></svg>Favoris</button></nav>
+  <div class="side-heading"><span>MES PLAYLISTS</span><button class="icon-button" id="new-playlist" aria-label="Créer une playlist"><svg><use href="#i-plus"/></svg></button></div>
+  <nav id="playlist-nav" aria-label="Playlists"></nav>
+  <p class="side-empty" id="side-empty">Un trajet, une humeur.<br>Créez votre première playlist.</p>
+  <div class="sidebar-bottom"><div class="device-stat"><span class="status-dot"></span>Sur cet appareil <strong id="side-storage">0 Mo</strong></div><button class="nav-button" id="help"><svg><use href="#i-info"/></svg>Mode d’emploi</button><span class="version">SILLAGE 1.0 · SANS ABONNEMENT</span></div>
+</aside>
+<div class="main-wrap">
+  <header class="topbar"><span class="mobile-brand">sillage<span>.</span></span><div class="breadcrumb">Votre espace <span>/</span> <strong id="crumb">Bibliothèque</strong></div><div class="top-status"><span class="status-dot"></span><span id="network-label">Bibliothèque locale</span></div><button id="open-import" class="button primary small"><svg><use href="#i-plus"/></svg>Importer</button></header>
+  <main>
+    <section class="hero" id="hero"><div class="hero-copy"><span class="eyebrow">LIBRE D’ÉCOUTER</span><h1>Votre musique.<br><em>Où que vous soyez.</em></h1><p>Vos morceaux, vos playlists. Une fois importés,<br class="desktop-only"> ils vous suivent, même sans connexion.</p><div class="hero-tags"><span><svg><use href="#i-check"/></svg>Sans abonnement</span><span><svg><use href="#i-check"/></svg>Sur votre appareil</span></div></div><div class="record-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="vinyl"><div class="vinyl-label"><span>sillage</span><b>PLAY IT<br>YOUR WAY.</b><i></i></div></div><div class="record-note">LA MUSIQUE RESTE.<br>LE RÉSEAU PEUT PARTIR.</div></div></section>
+    <section class="collection">
+      <div class="collection-header"><div><div class="eyebrow section-eyebrow" id="collection-kicker">VOTRE COLLECTION</div><h2 id="collection-title">Bibliothèque <span id="track-count">0</span></h2><p class="collection-meta" id="collection-meta">Votre prochain morceau préféré commence ici.</p></div><div class="collection-actions"><button id="playlist-options" class="icon-button hidden" aria-label="Options de la playlist"><svg><use href="#i-more"/></svg></button><button id="play-all" class="button light" disabled><svg><use href="#i-play"/></svg>Tout écouter</button></div></div>
+      <div class="toolbar"><label class="search"><svg><use href="#i-search"/></svg><input id="search" type="search" placeholder="Rechercher un titre, un artiste…" aria-label="Rechercher un morceau"></label><button id="open-transfer" class="button text-button" aria-label="Transférer / sauvegarder"><svg><use href="#i-upload"/></svg><span>Transférer / sauvegarder</span></button></div>
+      <div id="empty" class="empty-state"><div class="empty-icon"><svg><use href="#i-music"/></svg><span>+</span></div><h3>Faites place à votre musique.</h3><p>Ajoutez vos MP3, M4A ou WAV.<br>Tout reste ici, prêt à être écouté hors connexion.</p><button id="empty-import" class="button primary"><svg><use href="#i-plus"/></svg>Ajouter mes morceaux</button><button id="demo" class="demo-link">Ou essayer avec un son de démonstration <span>↗</span></button></div>
+      <div id="tracks" class="track-list" aria-live="polite"></div>
+      <div class="footnote"><span><svg><use href="#i-download"/></svg><span id="offline-status">Préparation du mode hors connexion…</span></span><button id="storage-info">Gérer le stockage</button></div>
+    </section>
+  </main>
+</div>
+<footer class="player" aria-label="Lecteur audio"><button id="now-playing" class="now-playing" aria-label="Afficher le morceau en cours"><span id="now-cover" class="mini-cover"><svg><use href="#i-music"/></svg></span><span><strong id="now-title">À vous de choisir</strong><small id="now-artist">La bande-son commence ici.</small></span></button><div class="player-center"><div class="transport"><button id="shuffle" class="icon-button secondary-control" aria-label="Lecture aléatoire" aria-pressed="false"><svg><use href="#i-shuffle"/></svg></button><button id="previous" class="icon-button" aria-label="Morceau précédent"><svg><use href="#i-prev"/></svg></button><button id="toggle-play" class="play-button" aria-label="Lire"><svg><use href="#i-play"/></svg></button><button id="next" class="icon-button" aria-label="Morceau suivant"><svg><use href="#i-next"/></svg></button><button id="repeat" class="icon-button secondary-control" aria-label="Répétition désactivée" aria-pressed="false"><svg><use href="#i-repeat"/></svg></button></div><div class="timeline"><span id="current-time">0:00</span><input id="seek" type="range" min="0" max="100" value="0" step="0.1" aria-label="Position de lecture"><span id="duration">0:00</span></div></div><div class="player-right"><span id="player-offline"><span class="status-dot"></span> Fichiers locaux</span><button id="queue" class="icon-button" aria-label="File d’attente"><svg><use href="#i-list"/></svg></button></div></footer>
+<nav class="mobile-nav" aria-label="Navigation mobile"><button data-view="library" class="active"><svg><use href="#i-music"/></svg>Musique</button><button data-view="favorites"><svg><use href="#i-heart"/></svg>Favoris</button><button id="mobile-playlists"><svg><use href="#i-list"/></svg>Playlists</button><button id="mobile-help"><svg><use href="#i-info"/></svg>Aide</button></nav>
+<dialog id="modal"><div class="modal-top"><h2 id="modal-title"></h2><button id="close-modal" class="icon-button" aria-label="Fermer"><svg><use href="#i-close"/></svg></button></div><div id="modal-body"></div></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+<audio id="audio" preload="auto"></audio>
+<script type="module" src="./app.js"></script>
+</body></html>
