@@ -5,6 +5,7 @@ import {RelayDiscovery} from './relay-discovery.mjs';
 import {loadPeer} from './peer-loader.mjs';
 
 const SETTINGS='sillage-sync-v1';
+const SOURCE_LOCK='sillage-pc-share-v1';
 
 export class SyncManager extends EventTarget {
   constructor(store,{companion}={}) {
@@ -12,12 +13,23 @@ export class SyncManager extends EventTarget {
     try{const s=JSON.parse(localStorage.getItem(SETTINGS));if(s && ['source','receiver'].includes(s.role)){normalizeCode(s.code);this.settings=s;}}catch{}
     window.addEventListener('online',()=>{if(this.settings?.enabled)this.start();});
     document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible' && this.settings?.enabled){if(this.https)this.https.syncOnce().catch(()=>{});else if(this.receiver?.authorized)this.receiver.requestSync().catch(()=>this.retry());else if(!this.peer || this.peer.destroyed || this.peer.disconnected)this.start();}});
-    window.addEventListener('storage',event=>{if(event.key===SETTINGS){this.stop();this.settings=null;this.state('Réglage modifié dans un autre onglet. Rechargez cette page.','off');}});
+    window.addEventListener('storage',event=>this.settingsChanged(event));
     window.addEventListener('pagehide',()=>this.stop());
     window.addEventListener('pageshow',event=>{if(event.persisted && this.settings?.enabled)this.start();});
   }
   state(text,kind='waiting',extra={}) {this.status={text,kind,...extra};this.dispatchEvent(new Event('change'));}
   save() {localStorage.setItem(SETTINGS,JSON.stringify(this.settings));}
+  settingsChanged(event) {
+    if(event.key!==SETTINGS && event.key!==null)return;
+    let next;try{next=JSON.parse(event.newValue);}catch{}
+    const current=this.settings;
+    // The sharing tab publishes a new relay URL, and either tab may rename the
+    // profile. Those metadata updates must not cancel another tab's lock wait.
+    if(current?.role==='source' && current.transport==='https' && next?.role===current.role && next.transport===current.transport && next.code===current.code && next.enabled===current.enabled){
+      this.settings=next;this.dispatchEvent(new Event('change'));return;
+    }
+    this.stop();this.settings=null;this.state('Réglage modifié dans un autre onglet. Rechargez cette page.','off');
+  }
   async configure(role,code,name,relayUrl) {
     const next={role,code:normalizeCode(code||newCode()),name:profileName(name||this.settings?.name),enabled:true};
     if(relayUrl){next.transport='https';next.relayUrl=normalizeRelayUrl(relayUrl);}
@@ -31,12 +43,13 @@ export class SyncManager extends EventTarget {
     this.settings.transport='https';this.settings.enabled=true;this.save();return this.start(true);
   }
   rename(name){if(!this.settings)return;this.settings.name=profileName(name);this.save();this.state(this.status.text,this.status.kind,this.status);}
-  async pause() {if(!this.settings)return;const closeTunnel=this.settings.transport==='https' && this.settings.role==='source';this.settings.enabled=false;this.save();this.stop();this.state('Synchronisation en pause','off');if(closeTunnel)try{await this.companion.call('sync-stop');}catch{throw Error('Copie automatique en pause. Pour fermer aussi le lien HTTPS, fermez le lanceur Sillage sur le PC.');}}
+  async pause() {if(!this.settings)return;const closeTunnel=this.settings.transport==='https' && this.settings.role==='source';this.settings.enabled=false;this.save();this.stop();this.state('Synchronisation en pause','off');if(closeTunnel)try{await this.companion.call('sync-stop');}catch{throw Error('Copie automatique en pause. La fermeture du lien HTTPS n’a pas pu être confirmée car le programme du PC ne répond pas.');}}
   resume() {if(!this.settings)return;if(this.settings.transport==='https' && this.settings.role==='source')return this.enableHTTPSFromClick();this.settings.enabled=true;this.save();this.attempts=0;this.linkFailures=0;return this.start(true);}
-  async forget() {const closeTunnel=this.settings?.transport==='https' && this.settings?.role==='source';localStorage.removeItem(SETTINGS);this.stop();this.settings=null;this.state('Appareils dissociés · morceaux conservés','off');if(closeTunnel)try{await this.companion.call('sync-stop');}catch{throw Error('Profil retiré de ce navigateur. Pour fermer aussi l’ancien lien HTTPS, fermez le lanceur Sillage sur le PC.');}}
+  async forget() {const closeTunnel=this.settings?.transport==='https' && this.settings?.role==='source';localStorage.removeItem(SETTINGS);this.stop();this.settings=null;this.state('Appareils dissociés · morceaux conservés','off');if(closeTunnel)try{await this.companion.call('sync-stop');}catch{throw Error('Profil retiré de ce navigateur. La fermeture de l’ancien lien HTTPS n’a pas pu être confirmée car le programme du PC ne répond pas.');}}
   stop() {
     ++this.generation;clearTimeout(this.retryTimer);clearTimeout(this.connectTimer);clearInterval(this.pollTimer);
     this.https?.stop();this.https=null;
+    const lock=this.sourceLock;this.sourceLock=null;lock?.controller.abort();lock?.release?.();
     const sessions=[...this.sessions];this.sessions.clear();this.receiver=null;
     for(const session of sessions)session.close();
     const peer=this.peer;this.peer=null;peer?.destroy();
@@ -52,15 +65,8 @@ export class SyncManager extends EventTarget {
     if(!navigator.onLine){this.state('Hors connexion · votre musique reste disponible','waiting');return;}
     const generation=this.generation,{role,code}=this.settings;
     if(this.settings.transport==='https'){
-      if(role==='source'){delete this.settings.relayUrl;this.save();}
-      const current=()=>generation===this.generation;
-      this.https=new HttpsSync({store:this.store,companion:this.companion,discovery:new RelayDiscovery({loadPeer}),
-        onState:state=>{if(current())this.state(state.text,state.kind,state);},
-        onUrl:url=>{if(current()){this.settings.relayUrl=url;this.save();this.dispatchEvent(new Event('change'));}}
-      });
-      try{await this.https.start({role,code,url:this.settings.relayUrl});}
-      catch(error){if(current()){this.state(error.message,'error');if(throwError)throw error;}}
-      return;
+      if(role==='source' && !await this.acquireSourceLock(generation))return;
+      return this.startHTTPS(generation,throwError);
     }
     if(!window.RTCPeerConnection || !crypto.subtle){this.state('Synchronisation indisponible dans ce navigateur. Utilisez Safari ou un navigateur récent.','error');return;}
     this.state(role==='source'?'Préparation du PC…':this.linkFailures?'Nouvel essai de connexion au PC…':'Recherche de votre PC…','waiting');
@@ -95,6 +101,47 @@ export class SyncManager extends EventTarget {
       });
       this.pollTimer=setInterval(()=>{if(current())this.receiver?.requestSync().catch(()=>this.retry());},10000);
     }catch(error){if(generation===this.generation)this.retry(error.message);}
+  }
+  acquireSourceLock(generation) {
+    if(!navigator.locks?.request)return Promise.resolve(true);
+    const ticket={controller:new AbortController(),generation},current=()=>this.sourceLock===ticket && this.generation===generation;
+    this.sourceLock=ticket;
+    const hold=()=>new Promise(resolve=>{ticket.release=resolve;});
+    const savedProfile=()=>{
+      const value=localStorage.getItem(SETTINGS);let latest;try{latest=JSON.parse(value);}catch{}
+      // A storage event can arrive after the lock handoff. Read the setting now
+      // so a pause, forgotten profile or changed key never starts a stale share.
+      if(latest?.role==='source' && latest.transport==='https' && latest.enabled===true && latest.code===this.settings?.code){this.settings=latest;return true;}
+      this.settingsChanged({key:SETTINGS,newValue:value});return false;
+    };
+    const failed=()=>{if(current()){this.state('Impossible de réserver le partage dans ce navigateur. Fermez les autres onglets Sillage puis réessayez.','error');}};
+    return new Promise(resolve=>{
+      // Probe without waiting so a click in a second tab finishes promptly.
+      Promise.resolve().then(()=>navigator.locks.request(SOURCE_LOCK,{mode:'exclusive',ifAvailable:true},lock=>{
+        if(!current() || !savedProfile()){resolve(false);return;}
+        if(lock){const held=hold();resolve(true);return held;}
+        this.state('Le partage est déjà actif dans un autre onglet Sillage. Cet onglet reprendra automatiquement quand il sera fermé.','waiting');
+        resolve(false);
+        // Keep one cancellable queued request. Closing the owner hands over the
+        // lock without polling, even when a browser restored several tabs.
+        navigator.locks.request(SOURCE_LOCK,{mode:'exclusive',signal:ticket.controller.signal},queuedLock=>{
+          if(!queuedLock || !current() || !savedProfile())return;
+          const held=hold();this.startHTTPS(generation).catch(failed);return held;
+        }).catch(error=>{if(error.name!=='AbortError')failed(error);});
+      })).catch(error=>{resolve(false);failed(error);});
+    });
+  }
+  async startHTTPS(generation,throwError=false) {
+    const current=()=>generation===this.generation;
+    if(!current() || !this.settings?.enabled)return;
+    const {role,code}=this.settings;
+    if(role==='source'){delete this.settings.relayUrl;this.save();}
+    this.https=new HttpsSync({store:this.store,companion:this.companion,discovery:new RelayDiscovery({loadPeer}),
+      onState:state=>{if(current())this.state(state.text,state.kind,state);},
+      onUrl:url=>{if(current()){this.settings.relayUrl=url;this.save();this.dispatchEvent(new Event('change'));}}
+    });
+    try{await this.https.start({role,code,url:this.settings.relayUrl});}
+    catch(error){if(current()){this.state(error.message,'error');if(throwError)throw error;}}
   }
   bind(connection,generation) {
     const {role,code}=this.settings;

@@ -3,7 +3,7 @@ import {MAX_TRACK,bytesLabel,timeLabel,typeForName,contentId,encodePack,decodePa
 import {Player} from './player.mjs';
 import {SyncManager,syncPanel,updateSyncStatus} from './sync.mjs';
 import {mergeMetadata} from './sync-protocol.mjs';
-import {Companion} from './companion.mjs';
+import {Companion,AUTO_COMPANION} from './companion.mjs';
 import {YouTubeQueue,youtubePanel,renderYouTube} from './youtube.mjs';
 import {readPairingInvitation,profileId,profileName} from './profile.mjs';
 import {SpotifyLinks,spotifyPanel} from './spotify-links.mjs';
@@ -19,7 +19,7 @@ function readPendingInvitation(){
   history.replaceState(null,'',location.pathname+location.search);return true;
 }
 readPendingInvitation();
-const openPC=location.hash==='#pc';if(openPC)history.replaceState(null,'',location.pathname+location.search);
+const openPC=location.hash==='#pc',autoPC=location.hash==='#pc-auto';if(openPC||autoPC)history.replaceState(null,'',location.pathname+location.search);
 const player=new Player($('#audio'));
 const companion=new Companion();
 const spotify=new SpotifyLinks();
@@ -36,13 +36,22 @@ const sync=new SyncManager({
   rpc:(method,params)=>youtube.service(method,params)
 },{companion});
 sync.addEventListener('change',()=>{updateSyncStatus(sync,$);updateProfileLabel();});
+function automaticCompanion(requested=autoPC){
+  if(sync.settings?.role!=='source' || sync.settings?.transport!=='https' || !sync.settings?.enabled)return;
+  try{requested ||= localStorage.getItem(AUTO_COMPANION)==='true';}catch{}
+  if(requested)companion.startAutomatic();
+}
 function syncDialog(initialCode='',initialError='',initialRelayUrl=''){syncPanel(sync,{modal,$,esc,toast,count:()=>library.tracks.length,initialCode,initialError,initialRelayUrl}).catch(error);}
 function showPendingInvitation(){
   if(!appReady || busy || (!invitationCode && !invitationError))return false;
   const code=invitationCode,message=invitationError,relay=invitationRelayUrl;invitationCode='';invitationError='';invitationRelayUrl='';
   syncDialog(code,message,relay);return true;
 }
-window.addEventListener('hashchange',()=>{if(readPendingInvitation())showPendingInvitation();});
+window.addEventListener('hashchange',()=>{
+  if(location.hash==='#pc-auto'){history.replaceState(null,'',location.pathname+location.search);automaticCompanion(true);return;}
+  if(readPendingInvitation())showPendingInvitation();
+});
+window.addEventListener('pageshow',event=>{if(event.persisted)automaticCompanion();});
 $('#open-sync').onclick=()=>syncDialog();
 async function updateProfileLabel(){const settings=sync.settings;if(!settings){$('#profile-label').textContent='Mon espace personnel';return;}const id=await profileId(settings.code);if(sync.settings===settings)$('#profile-label').textContent=profileName(settings.name)+' · '+id;}
 youtube=new YouTubeQueue({companion,sync,importAudio:importConvertedAudio,hasTrack:id=>library.tracks.some(t=>t.id===id)});
@@ -217,7 +226,7 @@ async function storageDialog(){
 }
 $('#storage-info').onclick=storageDialog;
 function helpDialog(){
-  modal('Votre musique, simplement',`<div class="modal-copy"><h3>1. Installer sur l’iPhone</h3><p>Ouvrez l’adresse HTTPS de Sillage dans Safari. Touchez Partager → Sur l’écran d’accueil → Ajouter. Lancez ensuite l’icône Sillage <strong>avant d’importer les morceaux</strong>. Une adresse localhost sur le PC n’est pas accessible depuis l’iPhone.</p><h3>2. Emporter vos titres</h3><p>Sur le PC où se trouve votre musique, touchez <strong>Connecter mon iPhone</strong> (ou <strong>Connecter mes appareils → Préparer ce PC</strong> la première fois). Si la liaison directe ne fonctionne pas, touchez <strong>Activer la connexion HTTPS gratuite</strong> et gardez le convertisseur PC ouvert. Attendez que le QR apparaisse après préparation de la musique. Scannez-le avec l’appareil photo de l’iPhone puis touchez <strong>Recevoir ma musique</strong>. Après un redémarrage, relancez Sillage sur le PC et, si demandé, touchez <strong>Préparer / relancer le lien HTTPS</strong>. L’iPhone déjà associé retrouve automatiquement la nouvelle adresse : ouvrez simplement Sillage, sans rescanner le QR. Utilisez ensuite toujours ce même navigateur ou cette même icône Sillage pour retrouver vos titres. Les prochains ajouts et playlists seront copiés automatiquement tant que Sillage est ouvert sur les deux appareils. Privilégiez le même Wi-Fi. Attendez « À jour » avant de partir.</p><h3>3. Écouter sans réseau</h3><p>Lancez un morceau, puis verrouillez l’écran. Les commandes de lecture sont prévues pour l’écran verrouillé. Testez aussi le passage au titre suivant : le comportement dépend de votre version d’iOS. Ne forcez pas la fermeture de l’application pendant l’écoute.</p><h3>Avant de partir</h3><p>Passez en mode avion, relancez Sillage et essayez plusieurs morceaux. Gardez une sauvegarde .sillage sur votre PC. Le navigateur peut supprimer des données en cas de nettoyage ou de manque de place.</p><h3>Ce qui reste sur votre appareil</h3><p>Les fichiers audio et playlists sont conservés localement. Avec la synchronisation directe, PeerJS aide à joindre les appareils. Avec la connexion HTTPS, PeerJS transmet uniquement des messages de recherche chiffrés et Cloudflare relaie les morceaux déjà chiffrés par Sillage. La clé privée reste sur vos appareils. Aucun de ces modes ne constitue une sauvegarde musicale permanente en ligne. Aucun abonnement, aucune publicité. Le site qui fournit l’interface doit être ouvert une première fois en ligne.</p></div><div class="form-actions"><button id="help-sync" class="button primary">Synchroniser mes appareils</button><button id="help-transfer" class="button text-button">Sauvegarde manuelle</button></div>`);
+  modal('Votre musique, simplement',`<div class="modal-copy"><h3>1. Installer sur l’iPhone</h3><p>Ouvrez l’adresse HTTPS de Sillage dans Safari. Touchez Partager → Sur l’écran d’accueil → Ajouter. Lancez ensuite l’icône Sillage <strong>avant d’importer les morceaux</strong>. Une adresse localhost sur le PC n’est pas accessible depuis l’iPhone.</p><h3>2. Emporter vos titres</h3><p>Sur le PC où se trouve votre musique, touchez <strong>Connecter mon iPhone</strong> (ou <strong>Connecter mes appareils → Préparer ce PC</strong> la première fois). Si la liaison directe ne fonctionne pas, touchez <strong>Activer la connexion HTTPS gratuite</strong> et gardez le convertisseur PC ouvert. Attendez que le QR apparaisse après préparation de la musique. Scannez-le avec l’appareil photo de l’iPhone puis touchez <strong>Recevoir ma musique</strong>. Avec le démarrage automatique Windows configuré, le lecteur et le partage reprennent à l’ouverture de votre session. Sinon, lancez <strong>Demarrer-Sillage.cmd</strong>. Brave peut demander une autorisation d’accès à cet ordinateur la première fois. L’iPhone déjà associé retrouve automatiquement la nouvelle adresse : ouvrez simplement Sillage, sans rescanner le QR. Utilisez ensuite toujours ce même navigateur ou cette même icône Sillage pour retrouver vos titres. Les prochains ajouts et playlists seront copiés automatiquement tant que Sillage est ouvert sur les deux appareils. Privilégiez le même Wi-Fi. Attendez « À jour » avant de partir.</p><h3>3. Écouter sans réseau</h3><p>Lancez un morceau, puis verrouillez l’écran. Les commandes de lecture sont prévues pour l’écran verrouillé. Testez aussi le passage au titre suivant : le comportement dépend de votre version d’iOS. Ne forcez pas la fermeture de l’application pendant l’écoute.</p><h3>Avant de partir</h3><p>Passez en mode avion, relancez Sillage et essayez plusieurs morceaux. Gardez une sauvegarde .sillage sur votre PC. Le navigateur peut supprimer des données en cas de nettoyage ou de manque de place.</p><h3>Ce qui reste sur votre appareil</h3><p>Les fichiers audio et playlists sont conservés localement. Avec la synchronisation directe, PeerJS aide à joindre les appareils. Avec la connexion HTTPS, PeerJS transmet uniquement des messages de recherche chiffrés et Cloudflare relaie les morceaux déjà chiffrés par Sillage. La clé privée reste sur vos appareils. Aucun de ces modes ne constitue une sauvegarde musicale permanente en ligne. Aucun abonnement, aucune publicité. Le site qui fournit l’interface doit être ouvert une première fois en ligne.</p></div><div class="form-actions"><button id="help-sync" class="button primary">Synchroniser mes appareils</button><button id="help-transfer" class="button text-button">Sauvegarde manuelle</button></div>`);
   if($('#help-transfer'))$('#help-transfer').onclick=transferDialog;if($('#help-sync'))$('#help-sync').onclick=()=>syncDialog();
 }
 $('#help').onclick=helpDialog;$('#mobile-help').onclick=helpDialog;
@@ -240,7 +249,7 @@ window.addEventListener('online',network);window.addEventListener('offline',netw
 async function boot(){
   network();
   try{await refresh();}catch(e){$('#offline-status').textContent='Stockage local indisponible';modal('Stockage indisponible',`<p class="modal-copy">${esc(e.message)} Ouvrez Sillage dans une fenêtre normale de Safari ou de votre navigateur, puis réessayez.</p>`);return;}
-  updateSyncStatus(sync,$);await updateProfileLabel();await companion.probe();sync.start();youtube.tick();
+  updateSyncStatus(sync,$);await updateProfileLabel();automaticCompanion();await companion.probe();sync.start();youtube.tick();
   appReady=true;if(!showPendingInvitation() && openPC)youtubeDialog();
   if('serviceWorker' in navigator && window.isSecureContext){
     try{const registration=await navigator.serviceWorker.register('./sw.js');await navigator.serviceWorker.ready;offlineReady=true;$('#offline-status').textContent='Interface prête hors connexion · musique locale';registration.update().catch(()=>{});}catch{$('#offline-status').textContent='Interface non préparée hors connexion · réessayez en ligne';}

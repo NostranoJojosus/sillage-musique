@@ -1,4 +1,4 @@
-# Sillage 1.3.1
+# Sillage 1.3.2
 
 Lecteur de musique personnel installable depuis Safari sur l’écran d’accueil de l’iPhone, sans App Store ni abonnement.
 
@@ -15,7 +15,7 @@ pas un compte avec stockage en ligne. Garder sa clé et une sauvegarde de sa mus
 
 **Ajouter un lien YouTube** accepte une vidéo et l’ajoute automatiquement en MP3.
 Sur le PC, lancer `Demarrer-Sillage.cmd`, puis **Activer le convertisseur PC** dans
-le lecteur habituel. Garder la petite fenêtre du convertisseur ouverte. Les fichiers
+le lecteur habituel. Le démarrage automatique rétablit cette connexion ; si une petite fenêtre du convertisseur est ouverte en dépannage, la garder ouverte. Les fichiers
 restent dans la bibliothèque habituelle du site ; aucun téléchargement/réimport manuel
 n’est nécessaire. Le menu d’un morceau permet aussi d’**Exporter le fichier audio**.
 
@@ -56,17 +56,21 @@ qrcode-generator 1.4.4 est distribué sous licence MIT et chargé localement.
 ## Synchroniser du PC vers l’iPhone
 
 1. Sur le PC, ouvrir la bibliothèque contenant les morceaux dans le navigateur habituel.
-2. Lancer **Demarrer-Sillage.cmd**, puis choisir **Connecter mon iPhone → Activer la connexion HTTPS gratuite**. Sans profil existant, choisir d’abord **Connecter mes appareils → Préparer ce PC**. Garder la petite fenêtre du compagnon PC ouverte.
+2. Lancer **Demarrer-Sillage.cmd**. Le partage déjà activé reprend automatiquement. Pour une première configuration, choisir **Connecter mon iPhone → Activer la connexion HTTPS gratuite**. Sans profil existant, choisir d’abord **Connecter mes appareils → Préparer ce PC**. Si une petite fenêtre du compagnon PC est utilisée en dépannage, la garder ouverte.
 3. Pour la première association, scanner le QR avec l’iPhone, ouvrir le lien dans Safari et toucher **Recevoir ma musique**. Si Sillage est installé depuis l’écran d’accueil, coller le lien privé dans **Connecter mes appareils** depuis cette icône ; le navigateur et l’application installée peuvent avoir des bibliothèques séparées.
 4. Garder Sillage ouvert sur les deux appareils. Les ajouts et les playlists sont vérifiés toutes les dix secondes. Attendre **À jour** avant de partir.
 
 La connexion HTTPS utilise un **Cloudflare Quick Tunnel gratuit**, sans compte ni carte bancaire. Le logiciel `cloudflared` est installé localement par `Installer-outils.cmd` depuis son dépôt officiel, avec vérification SHA-256. Le relais permet de recevoir la musique sans liaison WebRTC directe. Une connexion Internet est nécessaire ; le Wi-Fi évite de consommer le forfait mobile pendant la copie.
 
-**Après un redémarrage du PC :** relancer **Demarrer-Sillage.cmd**, ouvrir la bibliothèque dans le navigateur PC habituel et choisir **Préparer / relancer le lien HTTPS** si demandé. Ouvrir simplement Sillage sur l’iPhone : l’association conservée lui permet de retrouver automatiquement la nouvelle adresse du PC, sans rescanner le QR. Le QR et le lien privé restent disponibles pour la première association et le dépannage.
+**Démarrage automatique Windows :** le dossier Windows distribué contient `Activer-demarrage-automatique.cmd` et `Desactiver-demarrage-automatique.cmd`. L’activation ajoute un raccourci au dossier Démarrage de la session courante. À l’ouverture de session, le programme local démarre en arrière-plan puis Brave ouvre le lecteur public avec son profil existant. Un compagnon déjà actif est réutilisé ; aucun processus étranger n’est arrêté. Aucun droit administrateur ni changement de politique d’exécution n’est requis.
+
+Le lecteur rejoint une iframe locale dédiée, avec vérification de l’origine, de la fenêtre et d’un nonce. L’API locale conserve son jeton privé. Brave peut demander une autorisation `loopback-network` pour le site lors de la première utilisation ; un refus est respecté et aucune protection navigateur n’est désactivée. Une fois l’accès accordé, le partage HTTPS déjà actif reprend sans clic sur le bouton de préparation. Les profils iPhone, dissociés ou mis en pause ne déclenchent aucune préparation automatique. Un verrou entre onglets évite les partages concurrents d’une session restaurée.
+
+**Après un redémarrage du PC :** ouvrir sa session Windows et garder l’onglet Sillage ouvert. Sur l’iPhone déjà associé, ouvrir simplement Sillage pour recevoir les nouveautés sans rescanner le QR. Sans démarrage automatique configuré, lancer `Demarrer-Sillage.cmd`. Le bouton **Préparer / relancer le lien HTTPS** reste disponible en dépannage.
 
 **Limites du service gratuit :** Quick Tunnels et PeerJS ne garantissent pas leur disponibilité. L’adresse du tunnel peut changer ; sa redécouverte nécessite Internet et Sillage ouvert sur le PC. Le cache chiffré du PC est limité à 2 Go. iOS peut suspendre la recherche du PC et la copie en arrière-plan : garder Sillage visible jusqu’à « À jour ». Un iPhone physique reste nécessaire pour valider son comportement réel, notamment l’écoute écran verrouillé.
 
-La synchronisation vérifie les ajouts toutes les dix secondes lorsque les lecteurs sont ouverts. Une coupure déclenche une nouvelle tentative ; l’iPhone recherche aussi l’adresse courante du PC. **Mettre la synchronisation en pause** sur le PC ferme le tunnel. Le relancer conserve l’association de l’iPhone. Fermer le lanceur arrête aussi le partage. L’ancien mode direct reste disponible pour les profils qui l’utilisent déjà.
+La synchronisation vérifie les ajouts toutes les dix secondes lorsque les lecteurs sont ouverts. Une coupure déclenche une nouvelle tentative ; l’iPhone recherche aussi l’adresse courante du PC. **Mettre la synchronisation en pause** sur le PC ferme le tunnel. Le relancer conserve l’association de l’iPhone. Fermer Brave interrompt les nouvelles publications ; mettre la synchronisation en pause ferme également le lien de téléchargement actif. L’ancien mode direct reste disponible pour les profils qui l’utilisent déjà.
 
 Après la copie, la musique reste disponible sur l’iPhone, même sans réseau et avec le PC éteint. Elle utilise donc le stockage de l’iPhone.
 
@@ -87,7 +91,7 @@ Après la copie, la musique reste disponible sur l’iPhone, même sans réseau 
 
 Si **Connecter mon iPhone** n’apparaît pas sur le PC déjà associé, ouvrir Sillage en ligne, recharger, attendre quelques secondes, puis recharger encore. Ne pas effacer les données du site.
 
-La version 1.3.1 conserve les associations HTTPS existantes. Mettre les deux lecteurs à jour pour utiliser la redécouverte automatique du PC ; aucune nouvelle association n’est nécessaire.
+La version 1.3.2 conserve les associations HTTPS existantes. Mettre les deux lecteurs à jour pour utiliser la redécouverte automatique du PC ; aucune nouvelle association n’est nécessaire.
 
 PeerJS 1.5.5 est distribué localement avec sa licence MIT dans `PEERJS-LICENSE.txt`. Aucun code tiers n’est chargé depuis un CDN à l’exécution.
 
