@@ -1,4 +1,4 @@
-# Sillage 1.2
+# Sillage 1.2.4
 
 Lecteur de musique personnel installable depuis Safari sur l’écran d’accueil de l’iPhone, sans App Store ni abonnement.
 
@@ -6,7 +6,8 @@ Lecteur de musique personnel installable depuis Safari sur l’écran d’accuei
 
 ## Profil personnel et liens YouTube / Spotify
 
-**Mon profil** affiche un ID stable `SLG-…`, un nom et une association mémorisée.
+**Connecter mon iPhone** ouvre directement le QR privé du PC. Les réglages du profil
+affichent un ID stable `SLG-…`, un nom et une association mémorisée.
 L’ancienne clé de synchronisation est conservée. Le lien privé ou la clé permet de
 retrouver le profil sur un autre appareil ; l’ID seul n’accorde pas l’accès. Un QR
 est généré localement. Ce profil est une association privée entre appareils,
@@ -55,11 +56,17 @@ qrcode-generator 1.4.4 est distribué sous licence MIT et chargé localement.
 ## Synchroniser du PC vers l’iPhone
 
 1. Sur le PC, ouvrir la bibliothèque contenant les morceaux dans le navigateur habituel.
-2. Choisir **Mon profil → Créer mon profil sur ce PC**.
-3. Sur l’iPhone, ouvrir Sillage depuis son icône, choisir **Mon profil**, puis saisir une fois le code affiché sur le PC.
+2. Choisir **Connecter mes appareils → Préparer ce PC** la première fois. Ensuite, **Connecter mon iPhone** affiche directement le QR.
+3. Scanner ce QR avec l’iPhone, ouvrir le lien dans Safari et toucher **Recevoir ma musique**. Si Sillage est installé depuis l’écran d’accueil, coller le lien privé dans **Connecter mes appareils** depuis cette icône ; le navigateur et l’application installée peuvent avoir des bibliothèques séparées.
 4. Garder Sillage ouvert sur les deux appareils. Les ajouts et les playlists sont vérifiés toutes les dix secondes. Attendre **À jour** avant de partir.
 
 Privilégier le même Wi-Fi. Une connexion Internet est nécessaire pour établir la liaison. Les réseaux qui empêchent une connexion WebRTC directe peuvent bloquer la synchronisation, notamment en 4G/5G. Aucun relais payant n’est utilisé. iOS peut suspendre l’application en arrière-plan : la copie n’y est pas garantie. La synchronisation sur un iPhone physique reste à vérifier ; les essais automatisés du protocole ne remplacent pas ce test.
+
+La version 1.2.4 distingue la recherche du PC, l’ouverture de la connexion et la copie.
+Après trois échecs de connexion directe, elle affiche une erreur et propose de relancer,
+au lieu de boucler indéfiniment. Cette mise à jour simplifie l’association ; elle ne
+contourne pas les réseaux qui bloquent WebRTC. Aucun relais tiers n’a été ajouté.
+Une invitation reçue dans un onglet déjà ouvert est reconnue sans rechargement.
 
 Après la copie, la musique reste disponible sur l’iPhone, même sans réseau et avec le PC éteint. Elle utilise donc le stockage de l’iPhone.
 
@@ -76,6 +83,6 @@ Après la copie, la musique reste disponible sur l’iPhone, même sans réseau 
 
 ## Mise à jour
 
-Si **Mon profil** n’apparaît pas, ouvrir Sillage en ligne, recharger, attendre quelques secondes, puis fermer et rouvrir. Ne pas effacer les données du site.
+Si **Connecter mon iPhone** n’apparaît pas sur le PC déjà associé, ouvrir Sillage en ligne, recharger, attendre quelques secondes, puis recharger encore. Ne pas effacer les données du site.
 
 PeerJS 1.5.5 est distribué localement avec sa licence MIT dans `PEERJS-LICENSE.txt`. Aucun code tiers n’est chargé depuis un CDN à l’exécution.

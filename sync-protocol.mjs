@@ -51,15 +51,19 @@ export class SyncFault extends Error {
 // Independent of PeerJS and the UI: the same protocol is exercised by the tests.
 // Nothing from the library is sent before both peers prove possession of the code.
 export class SyncSession {
-  constructor(connection, {role,code,store,onState=()=>{},onSaved=()=>{},onClose=()=>{},idleMs=90000}) {
+  constructor(connection, {role,code,store,onState=()=>{},onSaved=()=>{},onClose=()=>{},idleMs=90000,openingMs=35000}) {
     this.conn=connection;this.role=role;this.code=normalizeCode(code);this.store=store;
     this.onState=onState;this.onSaved=onSaved;this.onClose=onClose;
     this.stage='opening';this.closed=false;this.active=false;this.chain=Promise.resolve();this.last=Date.now();this.idleMs=idleMs;this.requests=new Map();
     connection.on('open',()=>this.guard(()=>this.open()));
     connection.on('data',data=>this.guard(()=>this.message(data)));
     connection.on('close',()=>this.close());
-    connection.on('error',()=>this.close(new SyncFault('Connexion interrompue. Les morceaux terminés sont conservés.','network')));
-    this.timer=setInterval(()=>{if(Date.now()-this.last>(this.authorized?idleMs:25000))this.close(new SyncFault('L’autre appareil ne répond plus.','network'));},1000);
+    connection.on('error',()=>this.close(new SyncFault(this.stage==='opening'?'Appareil trouvé, mais la connexion directe a échoué.':'Connexion interrompue. Les morceaux terminés sont conservés.',this.stage==='opening'?'network-link':'network')));
+    this.timer=setInterval(()=>{
+      if(Date.now()-this.last>(this.authorized?idleMs:this.stage==='opening'?openingMs:25000)){
+        this.close(new SyncFault(this.stage==='opening'?'La connexion directe entre les appareils n’a pas abouti.':'L’autre appareil ne répond plus.',this.stage==='opening'?'network-link':'network'));
+      }
+    },1000);
     this.timer.unref?.();
   }
   guard(fn) {
