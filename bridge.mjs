@@ -1,4 +1,4 @@
-import {localCall,validCommand} from './companion.mjs';
+import {localCall,validCommand} from './bridge-api.mjs';
 import {PUBLIC_APP} from './profile.mjs';
 const nonce=location.hash.slice(1),parent=window.parent!==window?window.parent:window.opener,origin=new URL(PUBLIC_APP).origin;
 history.replaceState(null,'',location.pathname);

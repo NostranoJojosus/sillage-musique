@@ -1,4 +1,4 @@
-# Sillage 1.3.2
+# Sillage 1.3.3
 
 Lecteur de musique personnel installable depuis Safari sur l’écran d’accueil de l’iPhone, sans App Store ni abonnement.
 
@@ -64,7 +64,7 @@ La connexion HTTPS utilise un **Cloudflare Quick Tunnel gratuit**, sans compte n
 
 **Démarrage automatique Windows :** le dossier Windows distribué contient `Activer-demarrage-automatique.cmd` et `Desactiver-demarrage-automatique.cmd`. L’activation ajoute un raccourci au dossier Démarrage de la session courante. À l’ouverture de session, le programme local démarre en arrière-plan puis Brave ouvre le lecteur public avec son profil existant. Un compagnon déjà actif est réutilisé ; aucun processus étranger n’est arrêté. Aucun droit administrateur ni changement de politique d’exécution n’est requis.
 
-Le lecteur rejoint une iframe locale dédiée, avec vérification de l’origine, de la fenêtre et d’un nonce. L’API locale conserve son jeton privé. Brave peut demander une autorisation `loopback-network` pour le site lors de la première utilisation ; un refus est respecté et aucune protection navigateur n’est désactivée. Une fois l’accès accordé, le partage HTTPS déjà actif reprend sans clic sur le bouton de préparation. Les profils iPhone, dissociés ou mis en pause ne déclenchent aucune préparation automatique. Un verrou entre onglets évite les partages concurrents d’une session restaurée.
+Le lecteur rejoint une iframe locale dédiée, avec vérification de l’origine, de la fenêtre et d’un nonce. L’API locale conserve son jeton privé. Brave peut demander une autorisation `loopback-network` pour le site lors de la première utilisation ; un refus est respecté et aucune protection navigateur n’est désactivée. Dans la demande Brave, choisir **Mémoriser ma décision → définitivement → Autoriser** pour conserver cet accès après fermeture du site. Une fois l’accès accordé, le partage HTTPS déjà actif reprend sans clic sur le bouton de préparation. Les profils iPhone, dissociés ou mis en pause ne déclenchent aucune préparation automatique. Un verrou entre onglets évite les partages concurrents d’une session restaurée.
 
 **Après un redémarrage du PC :** ouvrir sa session Windows et garder l’onglet Sillage ouvert. Sur l’iPhone déjà associé, ouvrir simplement Sillage pour recevoir les nouveautés sans rescanner le QR. Sans démarrage automatique configuré, lancer `Demarrer-Sillage.cmd`. Le bouton **Préparer / relancer le lien HTTPS** reste disponible en dépannage.
 
@@ -91,7 +91,7 @@ Après la copie, la musique reste disponible sur l’iPhone, même sans réseau 
 
 Si **Connecter mon iPhone** n’apparaît pas sur le PC déjà associé, ouvrir Sillage en ligne, recharger, attendre quelques secondes, puis recharger encore. Ne pas effacer les données du site.
 
-La version 1.3.2 conserve les associations HTTPS existantes. Mettre les deux lecteurs à jour pour utiliser la redécouverte automatique du PC ; aucune nouvelle association n’est nécessaire.
+La version 1.3.3 conserve les associations HTTPS existantes. Une réponse locale interrompue, y compris après ses en-têtes, provoque une reprise automatique de la publication. Le module RPC du pont PC est chargé hors du cache de l’interface locale pour éviter une ancienne version. Mettre les deux lecteurs à jour pour utiliser la redécouverte automatique du PC ; aucune nouvelle association n’est nécessaire.
 
 PeerJS 1.5.5 est distribué localement avec sa licence MIT dans `PEERJS-LICENSE.txt`. Aucun code tiers n’est chargé depuis un CDN à l’exécution.
 
