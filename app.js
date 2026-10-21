@@ -38,7 +38,7 @@ const youtubeUI={$ ,esc,toast,profile:()=>syncDialog()};
 function youtubeDialog(){youtubePanel(youtube,{modal,...youtubeUI});}
 youtube.addEventListener('change',()=>renderYouTube(youtube,youtubeUI));
 $('#open-youtube').onclick=youtubeDialog;
-$('#open-spotify').onclick=()=>spotifyPanel(spotify,{modal,$,esc,toast,discover:async p=>youtube.call(p,await youtube.scope()),addYouTube:url=>youtube.add(url),converter:youtubeDialog});
+$('#open-spotify').onclick=()=>spotifyPanel(spotify,{modal,$,esc,toast,discover:p=>youtube.discoverFromClick(p),addYouTube:url=>youtube.addFromClick(url),converter:youtubeDialog});
 function spotifyCount(){$('#spotify-count').textContent=spotify.items.length?`${spotify.items.length} lien${spotify.items.length>1?'s':''} enregistré${spotify.items.length>1?'s':''}`:'Morceaux, playlists et artistes à retrouver';}
 spotify.addEventListener('change',spotifyCount);spotifyCount();
 let toastTimer;

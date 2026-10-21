@@ -29,6 +29,19 @@ export class Companion extends EventTarget {
   }
   changed(){this.dispatchEvent(new Event('change'));}
   async probe(){if(!this.local)return;try{this.status=await localCall('status');}catch{this.status=null;}this.changed();}
+  async ensureReady(timeoutMs=15000){
+    if(this.local){await this.probe();if(this.status?.ready)return;throw Error('Lancez Demarrer-Sillage.cmd sur ce PC.');}
+    if(this.status?.ready && this.popup && !this.popup.closed)return;
+    // Called directly by a user click, before any await, so browsers allow the window.
+    this.connect();
+    if(this.status?.ready)return;
+    return new Promise((resolve,reject)=>{
+      const finish=error=>{clearTimeout(timer);this.removeEventListener('change',check);error?reject(error):resolve();};
+      const check=()=>{if(this.status?.ready)finish();else if(!this.popup || this.popup.closed)finish(Error('Gardez la fenêtre du convertisseur ouverte.'));};
+      const timer=setTimeout(()=>finish(Error('Connexion au PC non établie. Lancez Demarrer-Sillage.cmd puis autorisez la fenêtre du convertisseur pour ce site dans ce navigateur.')),timeoutMs);
+      this.addEventListener('change',check);check();
+    });
+  }
   connect(){
     if(this.local)return this.probe();
     if(this.popup && !this.popup.closed){

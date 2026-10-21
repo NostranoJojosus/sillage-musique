@@ -23,9 +23,23 @@ export class YouTubeQueue extends EventTarget {
   changed(){this.dispatchEvent(new Event('change'));}
   save(){this.storage.setItem(KEY,JSON.stringify(this.items));this.changed();}
   async scope(){return this.sync.settings?profileId(this.sync.settings.code):'local';}
+  async preparePC(){
+    if(this.sync.settings?.role==='receiver')return;
+    await this.companion.ensureReady();
+  }
+  async addFromClick(value){
+    const url=youtubeURL(value),connection=this.preparePC();
+    // Keep the request even if its browser blocks the converter window.
+    connection.catch(()=>{});
+    const item=await this.add(url);
+    try{await connection;}catch(error){throw Error('Lien conservé dans votre liste. '+error.message);}
+    this.tick();return item;
+  }
+  async discoverFromClick(params){await this.preparePC();return this.call(params,await this.scope());}
   async add(value){
     const url=youtubeURL(value),scope=await this.scope();
-    if(this.items.some(j=>j.url===url && j.scope===scope && !['error','done'].includes(j.status)))throw Error('Ce lien attend déjà dans votre liste.');
+    const existing=this.items.find(j=>j.url===url && j.scope===scope && !['error','done'].includes(j.status));
+    if(existing){this.tick();return existing;}
     if(this.items.filter(j=>!['done','error'].includes(j.status)).length>=20)throw Error('La liste contient déjà 20 liens en attente.');
     const item={id:newCode(),scope,url,status:'waiting',message:'En attente du PC',created:Date.now()};
     const next=[...this.items,item].slice(-50);this.storage.setItem(KEY,JSON.stringify(next));this.items=next;this.changed();this.tick();return item;
@@ -53,7 +67,7 @@ export class YouTubeQueue extends EventTarget {
     if(scope!==await this.scope() && !(scope==='local' && this.companion.status?.ready)){const e=Error('Lien en attente de son profil d’origine');e.kind='network';throw e;}
     if(this.companion.status?.ready)return this.service('youtube',params);
     if(this.sync.settings?.role==='receiver' && this.sync.receiver?.authorized)return this.sync.receiver.request('youtube',params,['spotify','search'].includes(params.action)?65000:15000);
-    const e=Error('En attente du PC associé et de son convertisseur');e.kind='network';throw e;
+    const e=Error(this.sync.settings?.role==='receiver'?'En attente du PC associé et de son convertisseur':'En attente de connexion au convertisseur dans ce navigateur. Cliquez sur Activer le convertisseur PC.');e.kind='network';throw e;
   }
   async tick(){
     if(this.running)return;this.running=true;
@@ -86,7 +100,7 @@ export class YouTubeQueue extends EventTarget {
 export function youtubePanel(queue,{modal,$,esc,toast,profile}) {
   const local=queue.companion.status?.ready,phone=queue.sync.settings?.role==='receiver';
   if(!modal('Un lien, un morceau',`<p class="modal-copy">Collez une vidéo YouTube. Votre PC prépare le MP3 et l’ajoute au lecteur ; l’iPhone associé le reçoit ensuite par synchronisation.</p><div class="youtube-connection" id="youtube-connection"></div><form id="youtube-form"><label class="form-label" for="youtube-url">Lien YouTube</label><input class="field" type="url" id="youtube-url" placeholder="https://youtu.be/…" required autocomplete="off"><button class="button primary full" style="margin-top:12px">Convertir et ajouter à ma musique</button><p id="youtube-feedback" class="import-status" role="status"></p></form><div id="youtube-jobs" aria-live="polite"></div><details class="sync-details"><summary>Première utilisation sur ce PC</summary><p>Lancez <strong>Demarrer-Sillage.cmd</strong> dans le dossier Sillage, puis cliquez sur <strong>Activer le convertisseur PC</strong>. Gardez sa fenêtre ouverte. Les outils sont déjà installés sur votre PC ; sur une nouvelle installation, lancez d’abord Installer-outils.cmd.</p><p>Sur l’iPhone, associez le profil du PC dans <strong>Mon profil</strong>. Les liens en attente restent mémorisés ici. Gardez Sillage ouvert sur les deux appareils pendant le traitement et la copie. Un profil seul ne stocke pas les MP3 en ligne.</p></details><p class="notice">Utilisez vos vidéos ou des contenus dont le téléchargement est autorisé. Une vidéo à la fois, jusqu’à une heure et 100 Mo. Une vidéo indisponible ou un changement de YouTube peut empêcher la conversion.</p>`))return;
-  $('#youtube-form').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;try{await queue.add($('#youtube-url').value);$('#youtube-url').value='';$('#youtube-feedback').textContent='Lien enregistré. Le traitement démarrera dès que le PC sera disponible.';}catch(e){$('#youtube-feedback').textContent=e.message;}finally{button.disabled=false;}};
+  $('#youtube-form').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button'),feedback=$('#youtube-feedback'),input=$('#youtube-url');button.disabled=true;feedback.textContent='Connexion au PC et préparation de votre demande…';try{await queue.addFromClick(input.value);input.value='';feedback.textContent='Demande enregistrée ou reprise sans doublon. Son état apparaît dans Mes liens.';}catch(e){feedback.textContent=e.message;}finally{button.disabled=false;}};
   renderYouTube(queue,{$,esc,toast,profile});
 }
 export function renderYouTube(queue,{$,esc,toast,profile}) {

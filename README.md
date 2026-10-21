@@ -18,6 +18,12 @@ le lecteur habituel. Garder la petite fenêtre du convertisseur ouverte. Les fic
 restent dans la bibliothèque habituelle du site ; aucun téléchargement/réimport manuel
 n’est nécessaire. Le menu d’un morceau permet aussi d’**Exporter le fichier audio**.
 
+La connexion au convertisseur appartient à l’onglet et au navigateur utilisés.
+Depuis la version 1.2.3, **Convertir et ajouter à ma musique** et la recherche Spotify
+ouvrent cette connexion au clic si nécessaire. Garder la fenêtre ouverte et autoriser
+son ouverture pour ce site si le navigateur la bloque. Soumettre à nouveau un lien
+déjà en attente reprend la demande existante sans la doubler. Cela n’efface aucune musique.
+
 Sur l’iPhone associé, le lien est envoyé au PC par la connexion authentifiée. Le PC,
 son convertisseur et les deux lecteurs doivent être ouverts. Les liens en attente
 restent mémorisés sur l’appareil qui les reçoit. Aucun convertisseur payant n’est utilisé.

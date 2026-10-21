@@ -1,4 +1,4 @@
-const CACHE='sillage-shell-v1.2.2';
+const CACHE='sillage-shell-v1.2.3';
 const ASSETS=['./','./index.html','./style.css','./app.js','./format.mjs','./db.mjs','./player.mjs','./sync.mjs','./sync-protocol.mjs','./profile.mjs','./spotify-links.mjs','./youtube.mjs','./companion.mjs','./qrcode.js','./peerjs.min.js','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{const c=await caches.open(CACHE);await c.addAll(ASSETS);await self.skipWaiting();})()));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{for(const key of await caches.keys()){if(key.startsWith('sillage-shell-') && key!==CACHE)await caches.delete(key);}await self.clients.claim();})()));
