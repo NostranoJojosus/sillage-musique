@@ -3,24 +3,44 @@ import {MAX_TRACK,bytesLabel,timeLabel,typeForName,contentId,encodePack,decodePa
 import {Player} from './player.mjs';
 import {SyncManager,syncPanel,updateSyncStatus} from './sync.mjs';
 import {mergeMetadata} from './sync-protocol.mjs';
+import {Companion} from './companion.mjs';
+import {YouTubeQueue,youtubePanel,renderYouTube} from './youtube.mjs';
+import {readInvitation,profileId,profileName} from './profile.mjs';
+import {SpotifyLinks,spotifyPanel} from './spotify-links.mjs';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon=(name)=>`<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
-let library={tracks:[],playlists:[]},view='library',busy=false,pc=null,offlineReady=false;
+let library={tracks:[],playlists:[]},view='library',busy=false,offlineReady=false,youtube;
+let invitationCode='',invitationError='';
+if(location.hash.startsWith('#profil=')){try{invitationCode=readInvitation(location.href);}catch(e){invitationError=e.message;}history.replaceState(null,'',location.pathname+location.search);}
+const openPC=location.hash==='#pc';if(openPC)history.replaceState(null,'',location.pathname+location.search);
 const player=new Player($('#audio'));
+const companion=new Companion();
+const spotify=new SpotifyLinks();
 const sync=new SyncManager({
-  getLibrary:db.getLibrary,getBlob:db.getBlob,commitImport:db.commitImport,checkSpace,
+  getLibrary:async()=>({...await db.getLibrary(),spotify:spotify.items}),getBlob:db.getBlob,commitImport:db.commitImport,checkSpace,
   applyMetadata:async catalog=>{
     const local=await db.getLibrary(),merged=mergeMetadata(local,catalog);
     const tracks=merged.tracks.filter(t=>JSON.stringify(t)!==JSON.stringify(local.tracks.find(x=>x.id===t.id)));
     const playlists=merged.playlists.filter(p=>JSON.stringify(p)!==JSON.stringify(local.playlists.find(x=>x.id===p.id)));
     if(tracks.length||playlists.length)await db.commitMetadata(tracks,playlists);
+    if(catalog.spotify)spotify.merge(catalog.spotify);
   },
-  onSaved:async()=>{await refresh();player.metadata();}
+  onSaved:async()=>{await refresh();player.metadata();},
+  rpc:(method,params)=>youtube.service(method,params)
 });
-sync.addEventListener('change',()=>updateSyncStatus(sync,$));
-function syncDialog(){syncPanel(sync,{modal,$,esc,toast,count:()=>library.tracks.length});}
-$('#open-sync').onclick=syncDialog;
+sync.addEventListener('change',()=>{updateSyncStatus(sync,$);updateProfileLabel();});
+function syncDialog(initialCode=''){syncPanel(sync,{modal,$,esc,toast,count:()=>library.tracks.length,initialCode}).catch(error);}
+$('#open-sync').onclick=()=>syncDialog();
+async function updateProfileLabel(){const settings=sync.settings;if(!settings){$('#profile-label').textContent='Mon espace personnel';return;}const id=await profileId(settings.code);if(sync.settings===settings)$('#profile-label').textContent=profileName(settings.name)+' · '+id;}
+youtube=new YouTubeQueue({companion,sync,importAudio:importConvertedAudio,hasTrack:id=>library.tracks.some(t=>t.id===id)});
+const youtubeUI={$ ,esc,toast,profile:()=>syncDialog()};
+function youtubeDialog(){youtubePanel(youtube,{modal,...youtubeUI});}
+youtube.addEventListener('change',()=>renderYouTube(youtube,youtubeUI));
+$('#open-youtube').onclick=youtubeDialog;
+$('#open-spotify').onclick=()=>spotifyPanel(spotify,{modal,$,esc,toast,discover:async p=>youtube.call(p,await youtube.scope()),addYouTube:url=>youtube.add(url),converter:youtubeDialog});
+function spotifyCount(){$('#spotify-count').textContent=spotify.items.length?`${spotify.items.length} lien${spotify.items.length>1?'s':''} enregistré${spotify.items.length>1?'s':''}`:'Morceaux, playlists et artistes à retrouver';}
+spotify.addEventListener('change',spotifyCount);spotifyCount();
 let toastTimer;
 function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),5500);}
 function error(e){console.error(e);toast(e?.name==='QuotaExceededError'?'Espace insuffisant. Libérez du stockage, puis réessayez.':e.message||'Une erreur est survenue.');}
@@ -85,7 +105,8 @@ function playlistList(){
 }
 $('#mobile-playlists').onclick=playlistList;
 function trackOptions(t){
-  if(!modal(t.title,`<div class="modal-menu"><button class="menu-button" id="add-to-playlist">${icon('plus')}Ajouter à une playlist</button><button class="menu-button" id="edit-track">Modifier le titre et l’artiste</button>${currentPlaylist()?'<button class="menu-button" id="remove-from-playlist">Retirer de cette playlist</button>':''}<button class="menu-button danger" id="delete-track">Supprimer de cet appareil</button></div><p class="modal-copy">${bytesLabel(t.size)} · ${timeLabel(t.duration)} · fichier local</p>`))return;
+  if(!modal(t.title,`<div class="modal-menu"><button class="menu-button" id="add-to-playlist">${icon('plus')}Ajouter à une playlist</button><button class="menu-button" id="edit-track">Modifier le titre et l’artiste</button><button class="menu-button" id="export-track">${icon('download')}Exporter le fichier audio</button>${currentPlaylist()?'<button class="menu-button" id="remove-from-playlist">Retirer de cette playlist</button>':''}<button class="menu-button danger" id="delete-track">Supprimer de cet appareil</button></div><p class="modal-copy">${bytesLabel(t.size)} · ${timeLabel(t.duration)} · fichier local</p>`))return;
+  $('#export-track').onclick=async()=>{try{const blob=await db.getBlob(t.id);if(!blob)throw Error('Fichier audio introuvable.');const extension={'audio/mpeg':'mp3','audio/mp4':'m4a','audio/wav':'wav','audio/aac':'aac'}[t.type]||'mp3';download(blob,(t.title.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').slice(0,140)||'Sillage')+'.'+extension);toast('Export audio préparé.');}catch(e){error(e);}};
   $('#add-to-playlist').onclick=()=>{
     if(!library.playlists.length){toast('Créez une playlist, puis ajoutez-y ce morceau.');playlistForm();return;}
     modal('Ajouter à une playlist',`<div class="modal-menu">${library.playlists.map(p=>`<button class="menu-button" data-add="${esc(p.id)}">${icon('list')}${esc(p.name)}${p.trackIds.includes(t.id)?'<small>Déjà ajouté</small>':''}</button>`).join('')}</div>`);
@@ -141,26 +162,25 @@ async function importPack(file){
   const playlists=manifest.playlists.map(p=>{const existing=library.playlists.find(x=>x.id===p.id);return {id:p.id,name:p.name,trackIds:[...new Set([...(existing?.trackIds||[]),...p.trackIds])]};});
   await db.commitImport(fresh,playlists);library=await db.getLibrary();return fresh.length;
 }
+async function importConvertedAudio(blob,filename){
+  if(!(blob instanceof Blob) || !blob.size || blob.size>MAX_TRACK)throw Error('MP3 vide ou supérieur à 100 Mo.');
+  const id=await contentId(blob),current=await db.getLibrary();
+  if(!current.tracks.some(t=>t.id===id)){
+    await checkSpace(blob.size);
+    const track={id,title:String(filename).replace(/\.mp3$/i,'').slice(0,240),artist:'',type:'audio/mpeg',size:blob.size,duration:await durationOf(blob),favorite:false,addedAt:Date.now()};
+    await db.commitImport([{track,blob:blob.slice(0,blob.size,'audio/mpeg')}],[]);
+  }
+  await refresh();return id;
+}
 function importDialog(){
-  if(!modal('Ajoutez votre musique',`<label class="dropzone">${icon('download')}<strong>Choisir des fichiers</strong><span>MP3, M4A, WAV, AAC ou sauvegarde .sillage</span><input id="file-input" type="file" accept="audio/mpeg,audio/mp4,audio/wav,audio/aac,.mp3,.m4a,.wav,.aac,.sillage" multiple aria-label="Choisir les fichiers à importer"></label><div class="progress"><i id="import-progress"></i></div><p id="import-status" class="import-status"></p><p class="notice">Les morceaux sont copiés sur cet appareil. Sur iPhone, installez d’abord Sillage sur l’écran d’accueil, puis importez depuis cette icône. Gardez l’application ouverte pendant l’import.</p>${pc?`<div class="pc-only-panel"><h3>Depuis un lien YouTube <span class="local-badge">PC</span></h3><p class="modal-copy">Pour vos vidéos ou les contenus dont le téléchargement est autorisé. Conversion locale en MP3.</p><form id="youtube-form"><label class="form-label" for="youtube-url">Lien de la vidéo</label><input class="field" id="youtube-url" type="url" placeholder="https://www.youtube.com/watch?v=…" required><button class="button text-button full" style="margin-top:12px" ${!pc.ready?'disabled':''}>Convertir puis importer</button></form>${!pc.ready?'<p class="notice">Outils gratuits à installer une seule fois : lancez Installer-outils.cmd dans le dossier Windows fourni.</p>':''}</div>`:''}`))return;
+  if(!modal('Ajoutez votre musique',`<button id="import-youtube" class="button primary full">Ajouter depuis un lien YouTube</button><p class="modal-copy">Ou importez des fichiers déjà présents sur cet appareil.</p><label class="dropzone">${icon('download')}<strong>Choisir des fichiers</strong><span>MP3, M4A, WAV, AAC ou sauvegarde .sillage</span><input id="file-input" type="file" accept="audio/mpeg,audio/mp4,audio/wav,audio/aac,.mp3,.m4a,.wav,.aac,.sillage" multiple aria-label="Choisir les fichiers à importer"></label><div class="progress"><i id="import-progress"></i></div><p id="import-status" class="import-status"></p><p class="notice">Les morceaux sont conservés sur cet appareil. Les appareils associés les reçoivent lorsque la synchronisation peut se connecter.</p>`))return;
   $('#file-input').onchange=e=>importFiles([...e.target.files]);
-  if($('#youtube-form'))$('#youtube-form').onsubmit=convertYoutube;
+  $('#import-youtube').onclick=youtubeDialog;
 }
 for(const id of ['open-import','empty-import'])$('#'+id).onclick=importDialog;
-async function convertYoutube(e){
-  e.preventDefault();if(busy)return;const url=$('#youtube-url').value;lock(true);let prepared;
-  try{
-    progress('Récupération de l’audio sur le PC…',5);
-    const r=await fetch('./api/youtube',{method:'POST',headers:{'Content-Type':'application/json','X-Sillage-Token':pc.token},body:JSON.stringify({url})});const job=await r.json();if(!r.ok)throw Error(job.error||'Import impossible.');
-    let result;
-    for(;;){await new Promise(resolve=>setTimeout(resolve,1600));const poll=await fetch(`./api/jobs/${job.id}`);if(!poll.ok)throw Error('Le serveur local a été arrêté.');result=await poll.json();progress(result.message||'Conversion MP3 en cours…',result.status==='done'?90:35);if(result.status==='error')throw Error(result.message);if(result.status==='done')break;}
-    const audio=await fetch(`./api/audio/${job.id}`);if(!audio.ok)throw Error('Le MP3 converti est introuvable.');prepared=new File([await audio.blob()],result.filename||'Import YouTube.mp3',{type:'audio/mpeg'});
-  }catch(e){progress(e.message,0);error(e);}finally{lock(false);}
-  if(prepared)await importFiles([prepared]);
-}
 function download(blob,name){const a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=name;a.style.display='none';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),120000);}
 function transferDialog(){
-  if(!modal('Emportez votre bibliothèque',`<div class="modal-copy"><p>Un seul fichier <strong>.sillage</strong> contient vos morceaux et vos playlists. Aucun compte ni serveur musical n’est nécessaire.</p><div class="help-step"><b>01</b> Exportez la bibliothèque depuis le PC.</div><div class="help-step"><b>02</b> Transférez ce fichier vers l’app <strong>Fichiers</strong> de l’iPhone (par exemple avec l’espace gratuit de votre iCloud Drive, s’il est disponible).</div><div class="help-step"><b>03</b> Dans Sillage sur l’iPhone, touchez <strong>Importer</strong> et choisissez le fichier. Attendez la fin, puis testez en mode avion.</div><p>Les transferts sont manuels dans cette version. Réimporter une sauvegarde n’ajoute pas deux fois le même audio.</p></div><label class="form-label" for="export-scope">À exporter</label><select id="export-scope" class="field"><option value="all">Toute la bibliothèque (${library.tracks.length} titres)</option>${library.playlists.map(p=>`<option value="${esc(p.id)}">${esc(p.name)} (${p.trackIds.length} titres)</option>`).join('')}</select><div class="progress"><i id="import-progress"></i></div><p id="import-status" class="import-status"></p><div class="form-actions"><button id="export-library" class="button primary" ${!library.tracks.length?'disabled':''}>${icon('upload')}Exporter</button></div>`))return;
+  if(!modal('Emportez votre bibliothèque',`<div class="modal-copy"><p>Un seul fichier <strong>.sillage</strong> contient vos morceaux et vos playlists. Aucun compte ni serveur musical n’est nécessaire.</p><div class="help-step"><b>01</b> Exportez la bibliothèque depuis le PC.</div><div class="help-step"><b>02</b> Transférez ce fichier vers l’app <strong>Fichiers</strong> de l’iPhone (par exemple avec l’espace gratuit de votre iCloud Drive, s’il est disponible).</div><div class="help-step"><b>03</b> Dans Sillage sur l’iPhone, touchez <strong>Importer</strong> et choisissez le fichier. Attendez la fin, puis testez en mode avion.</div><p>Cet export est une sauvegarde facultative. Pour les prochains ajouts, utilisez Mon profil et la synchronisation automatique. Réimporter une sauvegarde n’ajoute pas deux fois le même audio.</p></div><label class="form-label" for="export-scope">À exporter</label><select id="export-scope" class="field"><option value="all">Toute la bibliothèque (${library.tracks.length} titres)</option>${library.playlists.map(p=>`<option value="${esc(p.id)}">${esc(p.name)} (${p.trackIds.length} titres)</option>`).join('')}</select><div class="progress"><i id="import-progress"></i></div><p id="import-status" class="import-status"></p><div class="form-actions"><button id="export-library" class="button primary" ${!library.tracks.length?'disabled':''}>${icon('upload')}Exporter</button></div>`))return;
   $('#export-library').onclick=async()=>{
     if(busy)return;lock(true);$('#export-library').disabled=true;
     try{const scope=$('#export-scope').value,p=library.playlists.find(p=>p.id===scope),tracks=p?p.trackIds.map(id=>library.tracks.find(t=>t.id===id)).filter(Boolean):library.tracks,playlists=p?[p]:library.playlists,blobs=[];for(let i=0;i<tracks.length;i++){progress(`Préparation ${i+1}/${tracks.length}…`,i/tracks.length*95);const b=await db.getBlob(tracks[i].id);if(!b)throw Error('Un fichier audio est manquant.');blobs.push(b);}const blob=encodePack({version:1,tracks,playlists},blobs);download(blob,`Sillage-${new Date().toISOString().slice(0,10)}.sillage`);progress(`Sauvegarde préparée (${bytesLabel(blob.size)}). Conservez-la sur votre PC.`,100);}catch(e){progress(e.message,0);error(e);}finally{lock(false);$('#export-library').disabled=false;}
@@ -176,7 +196,7 @@ async function storageDialog(){
 }
 $('#storage-info').onclick=storageDialog;
 function helpDialog(){
-  modal('Votre musique, simplement',`<div class="modal-copy"><h3>1. Installer sur l’iPhone</h3><p>Ouvrez l’adresse HTTPS de Sillage dans Safari. Touchez Partager → Sur l’écran d’accueil → Ajouter. Lancez ensuite l’icône Sillage <strong>avant d’importer les morceaux</strong>. Une adresse localhost sur le PC n’est pas accessible depuis l’iPhone.</p><h3>2. Emporter vos titres</h3><p>Touchez <strong>Synchroniser</strong> sur le PC et choisissez « Ce PC envoie ma musique ». Sur l’iPhone, ouvrez Sillage depuis son icône, touchez Synchroniser et saisissez le code du PC une seule fois. Les prochains ajouts et playlists seront copiés automatiquement tant que Sillage est ouvert sur les deux appareils. Privilégiez le même Wi-Fi. Attendez « À jour » avant de partir.</p><h3>3. Écouter sans réseau</h3><p>Lancez un morceau, puis verrouillez l’écran. Les commandes de lecture sont prévues pour l’écran verrouillé. Testez aussi le passage au titre suivant : le comportement dépend de votre version d’iOS. Ne forcez pas la fermeture de l’application pendant l’écoute.</p><h3>Avant de partir</h3><p>Passez en mode avion, relancez Sillage et essayez plusieurs morceaux. Gardez une sauvegarde .sillage sur votre PC. Le navigateur peut supprimer des données en cas de nettoyage ou de manque de place.</p><h3>Ce qui reste sur votre appareil</h3><p>Les fichiers audio et playlists sont conservés localement. Avec la synchronisation, les morceaux sont envoyés directement et chiffrés à votre appareil associé. Le service gratuit PeerJS aide à établir la liaison, sans stocker votre musique. Aucun abonnement, aucune publicité. Le site qui fournit l’interface doit être ouvert une première fois en ligne.</p></div><div class="form-actions"><button id="help-sync" class="button primary">Synchroniser mes appareils</button><button id="help-transfer" class="button text-button">Sauvegarde manuelle</button></div>`);
+  modal('Votre musique, simplement',`<div class="modal-copy"><h3>1. Installer sur l’iPhone</h3><p>Ouvrez l’adresse HTTPS de Sillage dans Safari. Touchez Partager → Sur l’écran d’accueil → Ajouter. Lancez ensuite l’icône Sillage <strong>avant d’importer les morceaux</strong>. Une adresse localhost sur le PC n’est pas accessible depuis l’iPhone.</p><h3>2. Emporter vos titres</h3><p>Touchez <strong>Mon profil</strong> sur le PC et créez votre profil. Sur l’iPhone, ouvrez Sillage depuis son icône, touchez Mon profil et collez le lien privé ou la clé du PC une seule fois. Les prochains ajouts et playlists seront copiés automatiquement tant que Sillage est ouvert sur les deux appareils. Privilégiez le même Wi-Fi. Attendez « À jour » avant de partir.</p><h3>3. Écouter sans réseau</h3><p>Lancez un morceau, puis verrouillez l’écran. Les commandes de lecture sont prévues pour l’écran verrouillé. Testez aussi le passage au titre suivant : le comportement dépend de votre version d’iOS. Ne forcez pas la fermeture de l’application pendant l’écoute.</p><h3>Avant de partir</h3><p>Passez en mode avion, relancez Sillage et essayez plusieurs morceaux. Gardez une sauvegarde .sillage sur votre PC. Le navigateur peut supprimer des données en cas de nettoyage ou de manque de place.</p><h3>Ce qui reste sur votre appareil</h3><p>Les fichiers audio et playlists sont conservés localement. Avec la synchronisation, les morceaux sont envoyés directement et chiffrés à votre appareil associé. Le service gratuit PeerJS aide à établir la liaison, sans stocker votre musique. Aucun abonnement, aucune publicité. Le site qui fournit l’interface doit être ouvert une première fois en ligne.</p></div><div class="form-actions"><button id="help-sync" class="button primary">Synchroniser mes appareils</button><button id="help-transfer" class="button text-button">Sauvegarde manuelle</button></div>`);
   if($('#help-transfer'))$('#help-transfer').onclick=transferDialog;if($('#help-sync'))$('#help-sync').onclick=syncDialog;
 }
 $('#help').onclick=helpDialog;$('#mobile-help').onclick=helpDialog;
@@ -199,10 +219,10 @@ window.addEventListener('online',network);window.addEventListener('offline',netw
 async function boot(){
   network();
   try{await refresh();}catch(e){$('#offline-status').textContent='Stockage local indisponible';modal('Stockage indisponible',`<p class="modal-copy">${esc(e.message)} Ouvrez Sillage dans une fenêtre normale de Safari ou de votre navigateur, puis réessayez.</p>`);return;}
-  updateSyncStatus(sync,$);sync.start();
+  updateSyncStatus(sync,$);await updateProfileLabel();await companion.probe();sync.start();youtube.tick();
+  if(invitationCode)syncDialog(invitationCode);else if(invitationError)toast(invitationError);else if(openPC)youtubeDialog();
   if('serviceWorker' in navigator && window.isSecureContext){
     try{const registration=await navigator.serviceWorker.register('./sw.js');await navigator.serviceWorker.ready;offlineReady=true;$('#offline-status').textContent='Interface prête hors connexion · musique locale';registration.update().catch(()=>{});}catch{$('#offline-status').textContent='Interface non préparée hors connexion · réessayez en ligne';}
   }else $('#offline-status').textContent='Une adresse HTTPS est nécessaire pour le mode hors connexion';
-  if(['localhost','127.0.0.1'].includes(location.hostname))try{const r=await fetch('./api/status');if(r.ok&&r.headers.get('Content-Type')?.includes('application/json'))pc=await r.json();}catch{}
 }
 boot();

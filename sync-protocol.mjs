@@ -1,4 +1,5 @@
 import {contentId, validateManifest, MAX_HEADER, MAX_TRACK} from './format.mjs';
+import {validateSpotifyLinks} from './spotify-links.mjs';
 
 export const CHUNK = 16000;
 export const WINDOW = 8;
@@ -25,13 +26,14 @@ export async function verifyProof(code, role, server, client, value) {
   return crypto.subtle.verify('HMAC', await authKey(code), Uint8Array.from(value.match(/../g), x => parseInt(x, 16)), encoder.encode(`sillage-v1|${role}|${server}|${client}`));
 }
 export function catalogOf(library) {
-  const catalog = {version:1, tracks:library.tracks.map(t => ({id:t.id,title:t.title,artist:t.artist,type:t.type,size:t.size,duration:t.duration,favorite:!!t.favorite})), playlists:library.playlists.map(p => ({id:p.id,name:p.name,trackIds:[...p.trackIds]}))};
+  const catalog = {version:1, tracks:library.tracks.map(t => ({id:t.id,title:t.title,artist:t.artist,type:t.type,size:t.size,duration:t.duration,favorite:!!t.favorite})), playlists:library.playlists.map(p => ({id:p.id,name:p.name,trackIds:[...p.trackIds]})),spotify:validateSpotifyLinks(library.spotify||[])};
   return validateCatalog(catalog);
 }
 export function validateCatalog(catalog) {
   if (JSON.stringify(catalog).length > MAX_HEADER) throw Error('La liste de morceaux est trop volumineuse.');
   const size = catalog?.tracks?.reduce((sum, t) => sum + (t?.size || 0), 0);
   validateManifest(catalog, size, Number.MAX_SAFE_INTEGER);
+  if(catalog.spotify!==undefined)validateSpotifyLinks(catalog.spotify);
   return catalog;
 }
 export function mergeMetadata(local, catalog) {
@@ -52,7 +54,7 @@ export class SyncSession {
   constructor(connection, {role,code,store,onState=()=>{},onSaved=()=>{},onClose=()=>{},idleMs=90000}) {
     this.conn=connection;this.role=role;this.code=normalizeCode(code);this.store=store;
     this.onState=onState;this.onSaved=onSaved;this.onClose=onClose;
-    this.stage='opening';this.closed=false;this.active=false;this.chain=Promise.resolve();this.last=Date.now();this.idleMs=idleMs;
+    this.stage='opening';this.closed=false;this.active=false;this.chain=Promise.resolve();this.last=Date.now();this.idleMs=idleMs;this.requests=new Map();
     connection.on('open',()=>this.guard(()=>this.open()));
     connection.on('data',data=>this.guard(()=>this.message(data)));
     connection.on('close',()=>this.close());
@@ -77,7 +79,7 @@ export class SyncSession {
   }
   async open() {
     this.last=Date.now();
-    if(this.role==='source'){this.serverNonce=newCode();this.stage='auth';this.send({t:'challenge',nonce:this.serverNonce});}
+    if(this.role==='source'){this.serverNonce=newCode();this.stage='auth';this.send({t:'challenge',nonce:this.serverNonce,features:this.store.rpc?['youtube-v1']:[]});}
     else this.stage='challenge';
   }
   async message(data) {
@@ -100,12 +102,24 @@ export class SyncSession {
     }
     if(this.parts)throw new SyncFault('Liste de morceaux interrompue.');
     if(!this.authorized)return this.authenticate(m);
+    if(m.t==='rpc' && this.role==='source') {
+      if(!/^[a-f0-9]{32}$/.test(m.id) || m.method!=='youtube' || !m.params || JSON.stringify(m.params).length>3000)throw new SyncFault('Demande distante invalide.');
+      let reply;
+      try{if(!this.store.rpc)throw Error('Mettez à jour Sillage sur le PC.');reply={t:'rpc-result',id:m.id,result:await this.store.rpc(m.method,m.params)};}
+      catch(error){reply={t:'rpc-result',id:m.id,error:String(error.message||'Demande impossible.').slice(0,1600),kind:error.kind==='network'?'network':'request'};}
+      if(!this.closed)this.send(reply);return;
+    }
+    if(m.t==='rpc-result' && this.role==='receiver') {
+      const pending=this.requests.get(m.id);if(!pending)return;
+      clearTimeout(pending.timer);this.requests.delete(m.id);
+      if(m.error){const e=Error(String(m.error).slice(0,1600));e.kind=m.kind==='network'?'network':'request';pending.reject(e);}else pending.resolve(m.result);return;
+    }
     if(this.role==='source')return this.sourceMessage(m);
     return this.receiverMessage(m);
   }
   async authenticate(m) {
     if(this.role==='receiver' && this.stage==='challenge' && m.t==='challenge' && /^[a-f0-9]{32}$/.test(m.nonce)){
-      this.serverNonce=m.nonce;this.clientNonce=newCode();this.stage='proof';
+      this.serverNonce=m.nonce;this.features=Array.isArray(m.features)?m.features.filter(x=>x==='youtube-v1'):[];this.clientNonce=newCode();this.stage='proof';
       this.send({t:'auth',nonce:this.clientNonce,proof:await proof(this.code,'client',this.serverNonce,this.clientNonce)});return;
     }
     if(this.role==='source' && this.stage==='auth' && m.t==='auth' && /^[a-f0-9]{32}$/.test(m.nonce) && await verifyProof(this.code,'client',this.serverNonce,m.nonce,m.proof)){
@@ -120,6 +134,17 @@ export class SyncSession {
   async requestSync() {
     if(this.closed || !this.authorized || this.role!=='receiver' || this.active)return;
     this.active=true;this.send({t:'catalog-request'});
+  }
+  request(method,params,timeout=15000) {
+    if(this.closed || !this.authorized || this.role!=='receiver')return Promise.reject(new SyncFault('Le PC n’est pas connecté.','network'));
+    if(method!=='youtube' || !this.features?.includes('youtube-v1'))return Promise.reject(Error('Mettez à jour Sillage sur le PC pour utiliser YouTube.'));
+    if(this.requests.size>=4)return Promise.reject(Error('Une demande est déjà en cours.'));
+    const id=newCode();
+    return new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>{this.requests.delete(id);reject(new SyncFault('Le PC ne répond pas. La demande sera reprise.','network'));},timeout);timer.unref?.();
+      this.requests.set(id,{resolve,reject,timer});
+      try{this.send({t:'rpc',id,method,params});}catch(e){clearTimeout(timer);this.requests.delete(id);reject(e);}
+    });
   }
   async sourceMessage(m) {
     if(m.t==='catalog-request' && !this.sending){
@@ -186,6 +211,7 @@ export class SyncSession {
   }
   close(error) {
     if(this.closed)return;this.closed=true;clearInterval(this.timer);this.receiving=null;this.sending=null;this.todo=null;this.parts=null;
+    for(const p of this.requests.values()){clearTimeout(p.timer);p.reject(new SyncFault('Connexion interrompue. La demande sera reprise.','network'));}this.requests.clear();
     try{this.conn.close();}catch{}
     this.onClose(error);
   }

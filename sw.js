@@ -1,10 +1,10 @@
-const CACHE='sillage-shell-v1.1.2';
-const ASSETS=['./','./index.html','./style.css','./app.js','./format.mjs','./db.mjs','./player.mjs','./sync.mjs','./sync-protocol.mjs','./peerjs.min.js','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
+const CACHE='sillage-shell-v1.2.2';
+const ASSETS=['./','./index.html','./style.css','./app.js','./format.mjs','./db.mjs','./player.mjs','./sync.mjs','./sync-protocol.mjs','./profile.mjs','./spotify-links.mjs','./youtube.mjs','./companion.mjs','./qrcode.js','./peerjs.min.js','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{const c=await caches.open(CACHE);await c.addAll(ASSETS);await self.skipWaiting();})()));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{for(const key of await caches.keys()){if(key.startsWith('sillage-shell-') && key!==CACHE)await caches.delete(key);}await self.clients.claim();})()));
 self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url),base=new URL(self.registration.scope);
-  if(event.request.method!=='GET' || url.origin!==base.origin || !url.pathname.startsWith(base.pathname) || url.pathname.includes('/api/'))return;
+  if(event.request.method!=='GET' || url.origin!==base.origin || !url.pathname.startsWith(base.pathname) || url.pathname.includes('/api/') || /\/bridge\.(html|mjs)$/.test(url.pathname))return;
   event.respondWith((async()=>{
     const cache=await caches.open(CACHE);
     if(event.request.mode==='navigate'){
