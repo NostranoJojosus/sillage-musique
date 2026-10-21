@@ -1,4 +1,4 @@
-# Sillage 1.3.0
+# Sillage 1.3.1
 
 Lecteur de musique personnel installable depuis Safari sur l’écran d’accueil de l’iPhone, sans App Store ni abonnement.
 
@@ -6,7 +6,7 @@ Lecteur de musique personnel installable depuis Safari sur l’écran d’accuei
 
 ## Profil personnel et liens YouTube / Spotify
 
-**Connecter mon iPhone** ouvre directement le QR privé du PC. Les réglages du profil
+**Connecter mon iPhone** ouvre la connexion au PC et son QR privé de première association. Les réglages du profil
 affichent un ID stable `SLG-…`, un nom et une association mémorisée.
 L’ancienne clé de synchronisation est conservée. Le lien privé ou la clé permet de
 retrouver le profil sur un autre appareil ; l’ID seul n’accorde pas l’accès. Un QR
@@ -57,14 +57,16 @@ qrcode-generator 1.4.4 est distribué sous licence MIT et chargé localement.
 
 1. Sur le PC, ouvrir la bibliothèque contenant les morceaux dans le navigateur habituel.
 2. Lancer **Demarrer-Sillage.cmd**, puis choisir **Connecter mon iPhone → Activer la connexion HTTPS gratuite**. Sans profil existant, choisir d’abord **Connecter mes appareils → Préparer ce PC**. Garder la petite fenêtre du compagnon PC ouverte.
-3. Scanner ce QR avec l’iPhone, ouvrir le lien dans Safari et toucher **Recevoir ma musique**. Si Sillage est installé depuis l’écran d’accueil, coller le lien privé dans **Connecter mes appareils** depuis cette icône ; le navigateur et l’application installée peuvent avoir des bibliothèques séparées.
+3. Pour la première association, scanner le QR avec l’iPhone, ouvrir le lien dans Safari et toucher **Recevoir ma musique**. Si Sillage est installé depuis l’écran d’accueil, coller le lien privé dans **Connecter mes appareils** depuis cette icône ; le navigateur et l’application installée peuvent avoir des bibliothèques séparées.
 4. Garder Sillage ouvert sur les deux appareils. Les ajouts et les playlists sont vérifiés toutes les dix secondes. Attendre **À jour** avant de partir.
 
 La connexion HTTPS utilise un **Cloudflare Quick Tunnel gratuit**, sans compte ni carte bancaire. Le logiciel `cloudflared` est installé localement par `Installer-outils.cmd` depuis son dépôt officiel, avec vérification SHA-256. Le relais permet de recevoir la musique sans liaison WebRTC directe. Une connexion Internet est nécessaire ; le Wi-Fi évite de consommer le forfait mobile pendant la copie.
 
-**Limites du service gratuit :** l’adresse change à chaque redémarrage du tunnel. Il faut alors scanner le nouveau QR ou coller le lien complet du PC. La clé seule ne contient pas l’adresse HTTPS. Quick Tunnels est un service temporaire sans garantie de disponibilité. Le cache chiffré du PC est limité à 2 Go. iOS peut suspendre la copie en arrière-plan : garder Sillage visible jusqu’à « À jour ». Un iPhone physique reste nécessaire pour valider son comportement réel, notamment l’écoute écran verrouillé.
+**Après un redémarrage du PC :** relancer **Demarrer-Sillage.cmd**, ouvrir la bibliothèque dans le navigateur PC habituel et choisir **Préparer / relancer le lien HTTPS** si demandé. Ouvrir simplement Sillage sur l’iPhone : l’association conservée lui permet de retrouver automatiquement la nouvelle adresse du PC, sans rescanner le QR. Le QR et le lien privé restent disponibles pour la première association et le dépannage.
 
-La synchronisation vérifie les ajouts toutes les dix secondes. Une coupure reprend automatiquement avec la même adresse ; un changement d’adresse demande un nouveau QR. **Mettre la synchronisation en pause** sur le PC ferme le tunnel. Fermer le lanceur arrête aussi le partage. L’ancien mode direct reste disponible pour les profils qui l’utilisent déjà.
+**Limites du service gratuit :** Quick Tunnels et PeerJS ne garantissent pas leur disponibilité. L’adresse du tunnel peut changer ; sa redécouverte nécessite Internet et Sillage ouvert sur le PC. Le cache chiffré du PC est limité à 2 Go. iOS peut suspendre la recherche du PC et la copie en arrière-plan : garder Sillage visible jusqu’à « À jour ». Un iPhone physique reste nécessaire pour valider son comportement réel, notamment l’écoute écran verrouillé.
+
+La synchronisation vérifie les ajouts toutes les dix secondes lorsque les lecteurs sont ouverts. Une coupure déclenche une nouvelle tentative ; l’iPhone recherche aussi l’adresse courante du PC. **Mettre la synchronisation en pause** sur le PC ferme le tunnel. Le relancer conserve l’association de l’iPhone. Fermer le lanceur arrête aussi le partage. L’ancien mode direct reste disponible pour les profils qui l’utilisent déjà.
 
 Après la copie, la musique reste disponible sur l’iPhone, même sans réseau et avec le PC éteint. Elle utilise donc le stockage de l’iPhone.
 
@@ -73,6 +75,7 @@ Après la copie, la musique reste disponible sur l’iPhone, même sans réseau 
 - Morceaux et playlists conservés dans IndexedDB, sur chaque appareil.
 - Le dépôt et GitHub Pages ne reçoivent aucun morceau, playlist ou code d’association.
 - En HTTPS, le catalogue et les morceaux sont chiffrés dans le navigateur PC (AES-GCM avec une clé dérivée du secret du profil). Cloudflare relaie les données chiffrées et voit les informations de connexion et le volume transféré. Il ne reçoit pas la clé de déchiffrement.
+- Pour retrouver l’adresse HTTPS après un redémarrage, PeerJS transmet un petit message contenant l’adresse de connexion chiffrée. Aucune musique ni clé privée ne lui est envoyée. PeerJS voit les informations de connexion nécessaires à ce service. L’association existante reste conservée.
 - Le tunnel expose seulement un serveur de téléchargement dédié, authentifié et limité aux données chiffrées. Le convertisseur, son API locale et les autres fichiers du PC ne sont pas exposés. Le cache `pc/sync-cache` est exclu des archives distribuées.
 - En mode direct, la liaison WebRTC est chiffrée et authentifiée ; PeerJS Cloud et STUN aident à joindre les appareils et voient leurs informations de connexion.
 - Les noms et le contenu des playlists suivent le PC ; les favoris de l’iPhone restent locaux.
@@ -83,6 +86,8 @@ Après la copie, la musique reste disponible sur l’iPhone, même sans réseau 
 ## Mise à jour
 
 Si **Connecter mon iPhone** n’apparaît pas sur le PC déjà associé, ouvrir Sillage en ligne, recharger, attendre quelques secondes, puis recharger encore. Ne pas effacer les données du site.
+
+La version 1.3.1 conserve les associations HTTPS existantes. Mettre les deux lecteurs à jour pour utiliser la redécouverte automatique du PC ; aucune nouvelle association n’est nécessaire.
 
 PeerJS 1.5.5 est distribué localement avec sa licence MIT dans `PEERJS-LICENSE.txt`. Aucun code tiers n’est chargé depuis un CDN à l’exécution.
 

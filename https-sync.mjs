@@ -60,10 +60,10 @@ function fault(error) {
 }
 
 export class HttpsSync {
-  constructor({store, companion, onState = () => {}, onUrl = () => {}, fetch:fetcher = globalThis.fetch.bind(globalThis), pollMs = 10000, requestTimeout = 30000, prepareTimeout = 60000, preparePollMs = 1000}) {
-    this.store = store; this.companion = companion; this.onState = onState; this.onUrl = onUrl;
+  constructor({store, companion, discovery, onState = () => {}, onUrl = () => {}, fetch:fetcher = globalThis.fetch.bind(globalThis), pollMs = 10000, requestTimeout = 30000, prepareTimeout = 60000, preparePollMs = 1000, discoveryTimeout = 10000}) {
+    this.store = store; this.companion = companion; this.discovery = discovery; this.onState = onState; this.onUrl = onUrl;
     this.fetch = fetcher; this.pollMs = pollMs; this.requestTimeout = requestTimeout;
-    this.prepareTimeout = prepareTimeout; this.preparePollMs = preparePollMs; this.run = null;
+    this.prepareTimeout = prepareTimeout; this.preparePollMs = preparePollMs; this.discoveryTimeout = discoveryTimeout; this.run = null;
   }
 
   current(run) { return this.run === run && !run.controller.signal.aborted; }
@@ -73,28 +73,24 @@ export class HttpsSync {
   stop() {
     const run = this.run; this.run = null;
     if (run) { clearTimeout(run.timer); run.controller.abort(); }
+    this.discovery?.stop();
   }
 
   async start({role, code, url}) {
     this.stop();
     if (!['source', 'receiver'].includes(role)) throw new SyncFault('Rôle de synchronisation invalide.');
     // Invalid destinations fail before deriving or exposing any token.
-    const address = role === 'receiver' ? normalizeRelayUrl(url) : null;
-    const run = {role, url:address, controller:new AbortController(), uploaded:new Map(), catalog:null, ready:false};
+    const address = role === 'receiver' ? (url === undefined && this.discovery ? null : normalizeRelayUrl(url)) : null;
+    const run = {role, code:normalizeCode(code), url:address, controller:new AbortController(), uploaded:new Map(), catalog:null, ready:false, needsPrepare:role === 'source', needsResolve:role === 'receiver', discoveryStarted:false};
     this.run = run;
     this.state(run, role === 'source' ? 'Préparation du lien HTTPS…' : 'Connexion sécurisée au PC…');
     try {
       Object.assign(run, await deriveHttpsSecrets(code)); this.check(run);
-      if (role === 'source') await this.prepare(run);
       run.ready = true;
       await this.syncOnce();
     } catch (error) {
-      if (!this.current(run)) return;
+      if (!this.current(run)) { if (run.failure) throw run.failure; return; }
       error = fault(error);
-      if (run.role === 'receiver' && run.ready && error.kind === 'network') {
-        this.state(run, error.message + ' Nouvelle tentative automatique.');
-        this.schedule(run); return;
-      }
       this.stop(); this.onState({text:error.message, kind:'error', reason:error.kind}); throw error;
     }
   }
@@ -105,7 +101,18 @@ export class HttpsSync {
     if (!run || !run.ready) return Promise.resolve();
     if (run.busy) return run.busy;
     clearTimeout(run.timer);
-    run.busy = (run.role === 'source' ? this.publish(run) : this.receive(run)).finally(() => {
+    run.busy = (run.role === 'source' ? this.publish(run) : this.receive(run)).catch(error => {
+      if (!this.current(run)) return;
+      error = fault(error);
+      if (error.kind === 'network') {
+        if (run.role === 'source') run.needsPrepare = true;
+        else run.needsResolve = true;
+        this.state(run, error.message + ' Nouvelle tentative automatique.');
+        return;
+      }
+      run.failure = error;
+      this.stop(); this.onState({text:error.message, kind:'error', reason:error.kind}); throw error;
+    }).finally(() => {
       run.busy = null;
       if (this.current(run)) this.schedule(run);
     });
@@ -115,15 +122,7 @@ export class HttpsSync {
   schedule(run) {
     clearTimeout(run.timer);
     run.timer = setTimeout(() => {
-      this.syncOnce().catch(error => {
-        if (!this.current(run)) return;
-        error = fault(error);
-        if (run.role === 'receiver' && error.kind === 'network') {
-          this.state(run, error.message + ' Nouvelle tentative automatique.');
-        } else {
-          this.stop(); this.onState({text:error.message, kind:'error', reason:error.kind});
-        }
-      });
+      if (this.current(run)) this.syncOnce().catch(() => {});
     }, this.pollMs);
     run.timer.unref?.();
   }
@@ -157,6 +156,52 @@ export class HttpsSync {
     } finally { clearTimeout(timer); if (abort) signal.removeEventListener('abort', abort); }
   }
 
+  async discoveryCall(run, operation) {
+    this.check(run);
+    let timer, abort;
+    const signal = run.controller.signal;
+    try {
+      const result = await Promise.race([
+        Promise.resolve().then(() => { this.check(run); return operation(); }),
+        new Promise((_, reject) => {
+          abort = () => reject(cancelled()); signal.addEventListener('abort', abort, {once:true});
+          timer = setTimeout(() => reject(new SyncFault('La recherche du PC est momentanément indisponible.', 'network')), this.discoveryTimeout);
+        })
+      ]);
+      this.check(run); return result;
+    } finally { clearTimeout(timer); if (abort) signal.removeEventListener('abort', abort); }
+  }
+
+  async openDiscovery(run) {
+    if (!this.discovery || run.discoveryStarted) return;
+    try {
+      await this.discoveryCall(run, () => this.discovery.start({role:run.role, code:run.code}));
+      run.discoveryStarted = true;
+    } catch (error) {
+      this.check(run);
+      if (error?.kind && error.kind !== 'network') throw error;
+      // The saved HTTPS address remains usable while discovery is unavailable.
+    }
+  }
+
+  async resolveAddress(run) {
+    await this.openDiscovery(run); this.check(run);
+    let address = null;
+    if (run.discoveryStarted) {
+      try { address = await this.discoveryCall(run, () => this.discovery.resolve()); }
+      catch (error) {
+        this.check(run);
+        if (error?.kind && error.kind !== 'network') throw error;
+      }
+    }
+    if (address !== null && address !== undefined) {
+      const normalized = normalizeRelayUrl(address);
+      if (normalized !== run.url) { run.url = normalized; this.onUrl(normalized); }
+    }
+    run.needsResolve = false;
+    if (!run.url) throw new SyncFault('En attente de votre PC. Ouvrez Sillage dans votre navigateur habituel sur le PC.', 'network');
+  }
+
   async prepare(run) {
     const deadline = Date.now() + this.prepareTimeout;
     let status = await this.local(run, 'sync-prepare', {accessToken:run.accessToken}, Math.min(this.requestTimeout, this.prepareTimeout));
@@ -167,14 +212,16 @@ export class HttpsSync {
       status = await this.local(run, 'sync-status', {}, Math.min(this.requestTimeout, Math.max(1, deadline - Date.now())));
     }
     this.acceptStatus(run, status);
-    this.onUrl(run.url);
+    run.needsPrepare = false;
   }
 
   acceptStatus(run, status) {
     if (!status?.ready || status?.available === false || !/^[a-f0-9]{32}$/.test(status?.session || '')) throw new SyncFault(status?.message || 'Le lien HTTPS du PC est fermé. Relancez la connexion.', 'network');
     const url = normalizeRelayUrl(status.url);
-    if (run.session && (run.session !== status.session || run.url !== url)) throw new SyncFault('Le lien du PC a changé. Relancez la connexion et ouvrez le nouveau lien sur l’iPhone.', 'network');
+    if (run.session !== status.session) { run.uploaded.clear(); run.catalog = null; }
+    const changed = run.url !== url;
     run.session = status.session; run.url = url;
+    if (changed) this.onUrl(url);
   }
 
   async put(run, kind, id, index, bytes) {
@@ -183,7 +230,12 @@ export class HttpsSync {
   }
 
   async publish(run) {
-    this.acceptStatus(run, await this.local(run, 'sync-status'));
+    if (run.needsPrepare || !run.session) await this.prepare(run);
+    else {
+      const status = await this.local(run, 'sync-status');
+      if (!status?.ready || status.session !== run.session || status.url !== run.url) await this.prepare(run);
+      else this.acceptStatus(run, status);
+    }
     const catalog = catalogOf(await this.store.getLibrary()); this.check(run);
     const bytes = catalogBytes(catalog);
     for (const track of catalog.tracks) {
@@ -205,6 +257,14 @@ export class HttpsSync {
       const frame = await encryptFrame(run.key, bytes, 'catalog'); this.check(run);
       await this.put(run, 'catalog', '', 0, frame);
       run.catalog = fingerprint;
+    }
+    await this.openDiscovery(run); this.check(run);
+    if (run.discoveryStarted) {
+      try { this.discovery.advertise(run.url); }
+      catch (error) {
+        if (error?.kind && error.kind !== 'network') throw error;
+        run.discoveryStarted = false;
+      }
     }
     this.state(run, 'PC prêt · lien HTTPS', 'ready', {done:true});
   }
@@ -256,6 +316,7 @@ export class HttpsSync {
   }
 
   async receive(run) {
+    if (run.needsResolve || !run.url) await this.resolveAddress(run);
     const frame = await this.download(run, '/v1/catalog', MAX_HEADER + FRAME_OVERHEAD);
     const bytes = await decryptFrame(run.key, frame, 'catalog'); this.check(run);
     if (bytes.length > MAX_HEADER) throw new SyncFault('La liste de morceaux est trop volumineuse.');

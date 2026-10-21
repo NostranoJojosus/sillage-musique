@@ -1,17 +1,10 @@
 import {SyncSession, SyncFault, newCode, normalizeCode, sourceId} from './sync-protocol.mjs';
 import {profileName} from './profile.mjs';
 import {HttpsSync, normalizeRelayUrl} from './https-sync.mjs';
+import {RelayDiscovery} from './relay-discovery.mjs';
+import {loadPeer} from './peer-loader.mjs';
 
 const SETTINGS='sillage-sync-v1';
-let peerScript;
-async function loadPeer() {
-  if(window.Peer)return window.Peer;
-  if(!peerScript)peerScript=new Promise((resolve,reject)=>{
-    const script=document.createElement('script');script.src=new URL('./peerjs.min.js',import.meta.url).href;
-    script.onload=()=>resolve(window.Peer);script.onerror=()=>{peerScript=null;script.remove();reject(Error('La synchronisation doit être préparée une première fois en ligne.'));};document.head.append(script);
-  });
-  return peerScript;
-}
 
 export class SyncManager extends EventTarget {
   constructor(store,{companion}={}) {
@@ -61,7 +54,7 @@ export class SyncManager extends EventTarget {
     if(this.settings.transport==='https'){
       if(role==='source'){delete this.settings.relayUrl;this.save();}
       const current=()=>generation===this.generation;
-      this.https=new HttpsSync({store:this.store,companion:this.companion,
+      this.https=new HttpsSync({store:this.store,companion:this.companion,discovery:new RelayDiscovery({loadPeer}),
         onState:state=>{if(current())this.state(state.text,state.kind,state);},
         onUrl:url=>{if(current()){this.settings.relayUrl=url;this.save();this.dispatchEvent(new Event('change'));}}
       });

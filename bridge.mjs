@@ -11,7 +11,7 @@ else {
     if(event.source!==parent || event.origin!==origin || m?.nonce!==nonce || m.type!=='request' || !/^[a-f0-9]{32}$/.test(m.id||'') || !validCommand(m.command,m.args) || inflight>=8)return;
     inflight++;
     try{const result=await localCall(m.command,m.args);parent.postMessage({type:'result',nonce,id:m.id,result},origin);}
-    catch(error){parent.postMessage({type:'result',nonce,id:m.id,error:error.message},origin);}
+    catch(error){parent.postMessage({type:'result',nonce,id:m.id,error:error.message,errorKind:error.kind==='network'?'network':undefined},origin);}
     finally{inflight--;}
   });
   try{const status=await localCall('status');label.textContent=status.ready?'Convertisseur prêt · retournez au lecteur Sillage':'Lancez Installer-outils.cmd, puis rouvrez cette fenêtre.';parent.postMessage({type:'ready',nonce,status},origin);}
