@@ -2,6 +2,9 @@ import {newCode} from './sync-protocol.mjs';
 export const COMPANION='http://127.0.0.1:8765';
 const ID=/^[a-f0-9]{32}$/;
 export function validCommand(command,args={}) {
+  if(command==='sync-status' || command==='sync-stop')return true;
+  if(command==='sync-prepare')return /^[a-f0-9]{64}$/.test(args.accessToken||'');
+  if(command==='sync-put')return ID.test(args.session||'') && typeof args.data==='string' && args.data.length<=5600000 && /^[A-Za-z0-9+/]*={0,2}$/.test(args.data) && (args.kind==='catalog' && args.id==='' && args.index===0 || args.kind==='audio' && /^t-[a-f0-9]{64}$/.test(args.id||'') && Number.isInteger(args.index) && args.index>=0 && args.index<400 && args.data.length<=350000);
   if(command==='status' || command==='jobs')return true;
   if(command==='job' || command==='audio')return ID.test(args.id||'');
   if(command==='submit')return ID.test(args.requestId||'') && typeof args.url==='string' && args.url.length<=2048;
@@ -12,7 +15,11 @@ export function validCommand(command,args={}) {
 export async function localCall(command,args={}) {
   if(!validCommand(command,args))throw Error('Commande du convertisseur invalide.');
   const status=await fetch('./api/status',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('Lancez Demarrer-Sillage.cmd sur le PC.');return r.json();});
-  if(command==='status')return {available:status.available,ready:status.ready};
+  if(command==='status')return {available:status.available,ready:status.ready,httpsSync:status.httpsSync};
+  if(command.startsWith('sync-')){
+    const response=await fetch('./api/sync',{method:'POST',headers:{'Content-Type':'application/json','X-Sillage-Token':status.token},body:JSON.stringify({action:command.slice(5),...args})});
+    const data=await response.json();if(!response.ok)throw Error(data.error||'La synchronisation PC ne répond pas.');return data;
+  }
   const discover=['spotify','search'].includes(command);
   let url=discover?'./api/discover':command==='jobs'?'./api/jobs':command==='submit'?'./api/youtube':`./api/${command==='audio'?'audio':'jobs'}/${args.id}`;
   const response=await fetch(url,command==='submit'||discover?{method:'POST',headers:{'Content-Type':'application/json','X-Sillage-Token':status.token},body:JSON.stringify(discover?{kind:command,...args}:{url:args.url,requestId:args.requestId})}:{cache:'no-store'});
@@ -29,15 +36,16 @@ export class Companion extends EventTarget {
   }
   changed(){this.dispatchEvent(new Event('change'));}
   async probe(){if(!this.local)return;try{this.status=await localCall('status');}catch{this.status=null;}this.changed();}
-  async ensureReady(timeoutMs=15000){
-    if(this.local){await this.probe();if(this.status?.ready)return;throw Error('Lancez Demarrer-Sillage.cmd sur ce PC.');}
-    if(this.status?.ready && this.popup && !this.popup.closed)return;
+  async ensureReady(timeoutMs=15000,syncOnly=false){
+    const ready=()=>syncOnly?this.status?.available && this.status?.httpsSync:this.status?.ready;
+    if(this.local){await this.probe();if(ready())return;throw Error('Lancez la nouvelle version de Demarrer-Sillage.cmd sur ce PC.');}
+    if(ready() && this.popup && !this.popup.closed)return;
     // Called directly by a user click, before any await, so browsers allow the window.
     this.connect();
-    if(this.status?.ready)return;
+    if(ready())return;
     return new Promise((resolve,reject)=>{
       const finish=error=>{clearTimeout(timer);this.removeEventListener('change',check);error?reject(error):resolve();};
-      const check=()=>{if(this.status?.ready)finish();else if(!this.popup || this.popup.closed)finish(Error('Gardez la fenêtre du convertisseur ouverte.'));};
+      const check=()=>{if(ready())finish();else if(!this.popup || this.popup.closed)finish(Error('Gardez la fenêtre du convertisseur ouverte.'));};
       const timer=setTimeout(()=>finish(Error('Connexion au PC non établie. Lancez Demarrer-Sillage.cmd puis autorisez la fenêtre du convertisseur pour ce site dans ce navigateur.')),timeoutMs);
       this.addEventListener('change',check);check();
     });
@@ -67,7 +75,7 @@ export class Companion extends EventTarget {
   async call(command,args={}){
     if(!validCommand(command,args))throw Error('Commande du convertisseur invalide.');
     if(this.local)return localCall(command,args);
-    if(!this.status?.available || !this.popup || this.popup.closed)throw Error('Lancez Demarrer-Sillage.cmd, puis cliquez sur Activer le convertisseur PC.');
+    if(!this.status?.available || !this.popup || this.popup.closed)throw Error(command.startsWith('sync-')?'Lancez Demarrer-Sillage.cmd, puis touchez Préparer / relancer le lien HTTPS dans Mes appareils.':'Lancez Demarrer-Sillage.cmd, puis cliquez sur Activer le convertisseur PC.');
     const id=newCode();return new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>{this.pending.delete(id);reject(Error('Le convertisseur ne répond pas. Vérifiez son lanceur Windows.'));},['search','spotify'].includes(command)?65000:30000);
       this.pending.set(id,{resolve,reject,timer});this.popup.postMessage({type:'request',nonce:this.nonce,id,command,args},COMPANION);

@@ -1,5 +1,6 @@
 import {SyncSession, SyncFault, newCode, normalizeCode, sourceId} from './sync-protocol.mjs';
 import {profileName} from './profile.mjs';
+import {HttpsSync, normalizeRelayUrl} from './https-sync.mjs';
 
 const SETTINGS='sillage-sync-v1';
 let peerScript;
@@ -13,27 +14,36 @@ async function loadPeer() {
 }
 
 export class SyncManager extends EventTarget {
-  constructor(store) {
-    super();this.store=store;this.sessions=new Set();this.status={text:'Relier le PC et l’iPhone',kind:'off'};this.generation=0;this.attempts=0;this.linkFailures=0;
+  constructor(store,{companion}={}) {
+    super();this.store=store;this.companion=companion;this.sessions=new Set();this.status={text:'Relier le PC et l’iPhone',kind:'off'};this.generation=0;this.attempts=0;this.linkFailures=0;
     try{const s=JSON.parse(localStorage.getItem(SETTINGS));if(s && ['source','receiver'].includes(s.role)){normalizeCode(s.code);this.settings=s;}}catch{}
     window.addEventListener('online',()=>{if(this.settings?.enabled)this.start();});
-    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible' && this.settings?.enabled){if(this.receiver?.authorized)this.receiver.requestSync().catch(()=>this.retry());else if(!this.peer || this.peer.destroyed || this.peer.disconnected)this.start();}});
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible' && this.settings?.enabled){if(this.https)this.https.syncOnce().catch(()=>{});else if(this.receiver?.authorized)this.receiver.requestSync().catch(()=>this.retry());else if(!this.peer || this.peer.destroyed || this.peer.disconnected)this.start();}});
     window.addEventListener('storage',event=>{if(event.key===SETTINGS){this.stop();this.settings=null;this.state('Réglage modifié dans un autre onglet. Rechargez cette page.','off');}});
     window.addEventListener('pagehide',()=>this.stop());
     window.addEventListener('pageshow',event=>{if(event.persisted && this.settings?.enabled)this.start();});
   }
   state(text,kind='waiting',extra={}) {this.status={text,kind,...extra};this.dispatchEvent(new Event('change'));}
   save() {localStorage.setItem(SETTINGS,JSON.stringify(this.settings));}
-  async configure(role,code,name) {
+  async configure(role,code,name,relayUrl) {
     const next={role,code:normalizeCode(code||newCode()),name:profileName(name||this.settings?.name),enabled:true};
-    localStorage.setItem(SETTINGS,JSON.stringify(next));this.settings=next;this.attempts=0;this.linkFailures=0;await this.start();
+    if(relayUrl){next.transport='https';next.relayUrl=normalizeRelayUrl(relayUrl);}
+    localStorage.setItem(SETTINGS,JSON.stringify(next));this.settings=next;this.attempts=0;this.linkFailures=0;await this.start(true);
+  }
+  async enableHTTPSFromClick(){
+    if(!this.companion)throw Error('La liaison avec le PC est indisponible.');
+    // Open the local bridge during the click, before the first await.
+    await this.companion.ensureReady(15000,true);
+    if(!this.settings || this.settings.role!=='source')this.settings={role:'source',code:newCode(),name:profileName(),enabled:true};
+    this.settings.transport='https';this.settings.enabled=true;this.save();return this.start(true);
   }
   rename(name){if(!this.settings)return;this.settings.name=profileName(name);this.save();this.state(this.status.text,this.status.kind,this.status);}
-  pause() {if(!this.settings)return;this.settings.enabled=false;this.save();this.stop();this.state('Synchronisation en pause','off');}
-  resume() {if(!this.settings)return;this.settings.enabled=true;this.save();this.attempts=0;this.linkFailures=0;this.start();}
-  forget() {localStorage.removeItem(SETTINGS);this.stop();this.settings=null;this.state('Appareils dissociés · morceaux conservés','off');}
+  async pause() {if(!this.settings)return;const closeTunnel=this.settings.transport==='https' && this.settings.role==='source';this.settings.enabled=false;this.save();this.stop();this.state('Synchronisation en pause','off');if(closeTunnel)try{await this.companion.call('sync-stop');}catch{throw Error('Copie automatique en pause. Pour fermer aussi le lien HTTPS, fermez le lanceur Sillage sur le PC.');}}
+  resume() {if(!this.settings)return;if(this.settings.transport==='https' && this.settings.role==='source')return this.enableHTTPSFromClick();this.settings.enabled=true;this.save();this.attempts=0;this.linkFailures=0;return this.start(true);}
+  async forget() {const closeTunnel=this.settings?.transport==='https' && this.settings?.role==='source';localStorage.removeItem(SETTINGS);this.stop();this.settings=null;this.state('Appareils dissociés · morceaux conservés','off');if(closeTunnel)try{await this.companion.call('sync-stop');}catch{throw Error('Profil retiré de ce navigateur. Pour fermer aussi l’ancien lien HTTPS, fermez le lanceur Sillage sur le PC.');}}
   stop() {
     ++this.generation;clearTimeout(this.retryTimer);clearTimeout(this.connectTimer);clearInterval(this.pollTimer);
+    this.https?.stop();this.https=null;
     const sessions=[...this.sessions];this.sessions.clear();this.receiver=null;
     for(const session of sessions)session.close();
     const peer=this.peer;this.peer=null;peer?.destroy();
@@ -44,11 +54,22 @@ export class SyncManager extends EventTarget {
     this.state(message || (this.settings.role==='receiver'?'En attente du PC · nouvelle tentative automatique':'Reconnexion au service de liaison…'),'waiting');
     this.retryTimer=setTimeout(()=>this.start(),delay);
   }
-  async start() {
+  async start(throwError=false) {
     this.stop();if(!this.settings?.enabled){this.state(this.settings?'Synchronisation en pause':'Relier le PC et l’iPhone','off');return;}
     if(!navigator.onLine){this.state('Hors connexion · votre musique reste disponible','waiting');return;}
-    if(!window.RTCPeerConnection || !crypto.subtle){this.state('Synchronisation indisponible dans ce navigateur. Utilisez Safari ou un navigateur récent.','error');return;}
     const generation=this.generation,{role,code}=this.settings;
+    if(this.settings.transport==='https'){
+      if(role==='source'){delete this.settings.relayUrl;this.save();}
+      const current=()=>generation===this.generation;
+      this.https=new HttpsSync({store:this.store,companion:this.companion,
+        onState:state=>{if(current())this.state(state.text,state.kind,state);},
+        onUrl:url=>{if(current()){this.settings.relayUrl=url;this.save();this.dispatchEvent(new Event('change'));}}
+      });
+      try{await this.https.start({role,code,url:this.settings.relayUrl});}
+      catch(error){if(current()){this.state(error.message,'error');if(throwError)throw error;}}
+      return;
+    }
+    if(!window.RTCPeerConnection || !crypto.subtle){this.state('Synchronisation indisponible dans ce navigateur. Utilisez Safari ou un navigateur récent.','error');return;}
     this.state(role==='source'?'Préparation du PC…':this.linkFailures?'Nouvel essai de connexion au PC…':'Recherche de votre PC…','waiting');
     try{
       const Peer=await loadPeer(),id=await sourceId(code);if(generation!==this.generation)return;
