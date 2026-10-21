@@ -1,11 +1,26 @@
 import * as db from './db.mjs';
 import {MAX_TRACK,bytesLabel,timeLabel,typeForName,contentId,encodePack,decodePack} from './format.mjs';
 import {Player} from './player.mjs';
+import {SyncManager,syncPanel,updateSyncStatus} from './sync.mjs';
+import {mergeMetadata} from './sync-protocol.mjs';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon=(name)=>`<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
 let library={tracks:[],playlists:[]},view='library',busy=false,pc=null,offlineReady=false;
 const player=new Player($('#audio'));
+const sync=new SyncManager({
+  getLibrary:db.getLibrary,getBlob:db.getBlob,commitImport:db.commitImport,checkSpace,
+  applyMetadata:async catalog=>{
+    const local=await db.getLibrary(),merged=mergeMetadata(local,catalog);
+    const tracks=merged.tracks.filter(t=>JSON.stringify(t)!==JSON.stringify(local.tracks.find(x=>x.id===t.id)));
+    const playlists=merged.playlists.filter(p=>JSON.stringify(p)!==JSON.stringify(local.playlists.find(x=>x.id===p.id)));
+    if(tracks.length||playlists.length)await db.commitMetadata(tracks,playlists);
+  },
+  onSaved:async()=>{await refresh();player.metadata();}
+});
+sync.addEventListener('change',()=>updateSyncStatus(sync,$));
+function syncDialog(){syncPanel(sync,{modal,$,esc,toast,count:()=>library.tracks.length});}
+$('#open-sync').onclick=syncDialog;
 let toastTimer;
 function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),5500);}
 function error(e){console.error(e);toast(e?.name==='QuotaExceededError'?'Espace insuffisant. Libérez du stockage, puis réessayez.':e.message||'Une erreur est survenue.');}
@@ -161,8 +176,8 @@ async function storageDialog(){
 }
 $('#storage-info').onclick=storageDialog;
 function helpDialog(){
-  modal('Votre musique, simplement',`<div class="modal-copy"><h3>1. Installer sur l’iPhone</h3><p>Ouvrez l’adresse HTTPS de Sillage dans Safari. Touchez Partager → Sur l’écran d’accueil → Ajouter. Lancez ensuite l’icône Sillage <strong>avant d’importer les morceaux</strong>. Une adresse localhost sur le PC n’est pas accessible depuis l’iPhone.</p><h3>2. Emporter vos titres</h3><p>Importez vos MP3/M4A dans l’application. Depuis le PC, le bouton de transfert exporte aussi vos playlists. Attendez « Interface prête hors connexion » avant de couper le réseau.</p><h3>3. Écouter sans réseau</h3><p>Lancez un morceau, puis verrouillez l’écran. Les commandes de lecture sont prévues pour l’écran verrouillé. Testez aussi le passage au titre suivant : le comportement dépend de votre version d’iOS. Ne forcez pas la fermeture de l’application pendant l’écoute.</p><h3>Avant de partir</h3><p>Passez en mode avion, relancez Sillage et essayez plusieurs morceaux. Gardez une sauvegarde .sillage sur votre PC. Le navigateur peut supprimer des données en cas de nettoyage ou de manque de place.</p><h3>Ce qui reste sur votre appareil</h3><p>Les fichiers audio et playlists sont conservés localement. Aucun envoi de votre musique à un serveur, aucun abonnement, aucune publicité. Le site qui fournit l’interface doit être ouvert une première fois en ligne.</p></div><div class="form-actions"><button id="help-transfer" class="button primary">Transférer ma musique</button></div>`);
-  if($('#help-transfer'))$('#help-transfer').onclick=transferDialog;
+  modal('Votre musique, simplement',`<div class="modal-copy"><h3>1. Installer sur l’iPhone</h3><p>Ouvrez l’adresse HTTPS de Sillage dans Safari. Touchez Partager → Sur l’écran d’accueil → Ajouter. Lancez ensuite l’icône Sillage <strong>avant d’importer les morceaux</strong>. Une adresse localhost sur le PC n’est pas accessible depuis l’iPhone.</p><h3>2. Emporter vos titres</h3><p>Touchez <strong>Synchroniser</strong> sur le PC et choisissez « Ce PC envoie ma musique ». Sur l’iPhone, ouvrez Sillage depuis son icône, touchez Synchroniser et saisissez le code du PC une seule fois. Les prochains ajouts et playlists seront copiés automatiquement tant que Sillage est ouvert sur les deux appareils. Privilégiez le même Wi-Fi. Attendez « À jour » avant de partir.</p><h3>3. Écouter sans réseau</h3><p>Lancez un morceau, puis verrouillez l’écran. Les commandes de lecture sont prévues pour l’écran verrouillé. Testez aussi le passage au titre suivant : le comportement dépend de votre version d’iOS. Ne forcez pas la fermeture de l’application pendant l’écoute.</p><h3>Avant de partir</h3><p>Passez en mode avion, relancez Sillage et essayez plusieurs morceaux. Gardez une sauvegarde .sillage sur votre PC. Le navigateur peut supprimer des données en cas de nettoyage ou de manque de place.</p><h3>Ce qui reste sur votre appareil</h3><p>Les fichiers audio et playlists sont conservés localement. Avec la synchronisation, les morceaux sont envoyés directement et chiffrés à votre appareil associé. Le service gratuit PeerJS aide à établir la liaison, sans stocker votre musique. Aucun abonnement, aucune publicité. Le site qui fournit l’interface doit être ouvert une première fois en ligne.</p></div><div class="form-actions"><button id="help-sync" class="button primary">Synchroniser mes appareils</button><button id="help-transfer" class="button text-button">Sauvegarde manuelle</button></div>`);
+  if($('#help-transfer'))$('#help-transfer').onclick=transferDialog;if($('#help-sync'))$('#help-sync').onclick=syncDialog;
 }
 $('#help').onclick=helpDialog;$('#mobile-help').onclick=helpDialog;
 function queueDialog(){
@@ -184,6 +199,7 @@ window.addEventListener('online',network);window.addEventListener('offline',netw
 async function boot(){
   network();
   try{await refresh();}catch(e){$('#offline-status').textContent='Stockage local indisponible';modal('Stockage indisponible',`<p class="modal-copy">${esc(e.message)} Ouvrez Sillage dans une fenêtre normale de Safari ou de votre navigateur, puis réessayez.</p>`);return;}
+  updateSyncStatus(sync,$);sync.start();
   if('serviceWorker' in navigator && window.isSecureContext){
     try{const registration=await navigator.serviceWorker.register('./sw.js');await navigator.serviceWorker.ready;offlineReady=true;$('#offline-status').textContent='Interface prête hors connexion · musique locale';registration.update().catch(()=>{});}catch{$('#offline-status').textContent='Interface non préparée hors connexion · réessayez en ligne';}
   }else $('#offline-status').textContent='Une adresse HTTPS est nécessaire pour le mode hors connexion';

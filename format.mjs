@@ -11,14 +11,14 @@ export async function contentId(blob) {
   const hash=await crypto.subtle.digest('SHA-256',await blob.arrayBuffer());
   return 't-'+Array.from(new Uint8Array(hash),x=>x.toString(16).padStart(2,'0')).join('');
 }
-export function validateManifest(m, payloadSize) {
+export function validateManifest(m, payloadSize, maxTotal=MAX_PACK) {
   if (!m || m.version!==1 || !Array.isArray(m.tracks) || !Array.isArray(m.playlists) || m.tracks.length>10000 || m.playlists.length>500) throw Error('Sauvegarde Sillage non reconnue.');
   const ids=new Set(); let total=0;
   for(const t of m.tracks){
     if(!t || !/^t-[a-f0-9]{64}$/.test(t.id) || ids.has(t.id) || !validText(t.title) || typeof t.artist!=='string' || t.artist.length>240 || !AUDIO_TYPES.has(t.type) || !Number.isSafeInteger(t.size) || t.size<=0 || t.size>MAX_TRACK || !Number.isFinite(t.duration) || t.duration<0 || t.duration>86400) throw Error('La sauvegarde contient un morceau invalide.');
     ids.add(t.id);total+=t.size;
   }
-  if(total!==payloadSize || total>MAX_PACK) throw Error('La sauvegarde est incomplète ou trop volumineuse.');
+  if(total!==payloadSize || !Number.isSafeInteger(total) || total>maxTotal) throw Error('La sauvegarde est incomplète ou trop volumineuse.');
   const pids=new Set();
   for(const p of m.playlists){
     if(!p || !validText(p.id,100) || pids.has(p.id) || !validText(p.name,80) || !Array.isArray(p.trackIds) || p.trackIds.length>10000 || p.trackIds.some(id=>!ids.has(id)) || new Set(p.trackIds).size!==p.trackIds.length) throw Error('La sauvegarde contient une playlist invalide.');
